@@ -1,1 +1,168 @@
+version: "3.9"
 
+services:
+  # ------------------------------------------------------------------
+  # PostgreSQL
+  # ------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: robotic_agent_postgres
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-robot_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-robot_password}
+      POSTGRES_DB: ${POSTGRES_DB:-robot_agent}
+
+    ports:
+      - "5432:5432"
+
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-robot_user} -d ${POSTGRES_DB:-robot_agent}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+    networks:
+      - agent_network
+
+  # ------------------------------------------------------------------
+  # ChromaDB
+  # ------------------------------------------------------------------
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: robotic_agent_chromadb
+    restart: unless-stopped
+
+    ports:
+      - "8100:8000"
+
+    volumes:
+      - chroma_data:/chroma/chroma
+
+    environment:
+      IS_PERSISTENT: "TRUE"
+      ANONYMIZED_TELEMETRY: "FALSE"
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/heartbeat"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+    networks:
+      - agent_network
+
+  # ------------------------------------------------------------------
+  # FastAPI Application
+  # ------------------------------------------------------------------
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: robotic_agent_api
+    restart: unless-stopped
+
+    ports:
+      - "8000:8000"
+
+    environment:
+      # Application
+      APP_NAME: "Robotic AI Agent API"
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      DEBUG: ${DEBUG:-false}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      AGENT_VERSION: ${AGENT_VERSION:-0.1.0}
+
+      # Database
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-robot_user}:${POSTGRES_PASSWORD:-robot_password}@postgres:5432/${POSTGRES_DB:-robot_agent}
+      DATABASE_AUTO_CREATE_TABLES: ${DATABASE_AUTO_CREATE_TABLES:-true}
+      DATABASE_ECHO: ${DATABASE_ECHO:-false}
+      DATABASE_POOL_SIZE: ${DATABASE_POOL_SIZE:-5}
+      DATABASE_MAX_OVERFLOW: ${DATABASE_MAX_OVERFLOW:-10}
+
+      # LLM
+      LLM_PROVIDER: ${LLM_PROVIDER:-openai}
+      LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
+      LLM_API_KEY: ${LLM_API_KEY}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_TEMPERATURE: ${LLM_TEMPERATURE:-0.0}
+      LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-2048}
+
+      # MCP
+      MCP_ROBOT_BACKEND: ${MCP_ROBOT_BACKEND:-simulated}
+      MCP_TRANSPORT: ${MCP_TRANSPORT:-stdio}
+
+      # ChromaDB
+      CHROMA_MODE: http
+      CHROMA_HOST: chromadb
+      CHROMA_PORT: "8000"
+      CHROMA_COLLECTION: ${CHROMA_COLLECTION:-robot_experiences}
+      CHROMA_DISTANCE: ${CHROMA_DISTANCE:-cosine}
+
+      # Agent behavior
+      AGENT_MAX_PLAN_STEPS: ${AGENT_MAX_PLAN_STEPS:-12}
+      AGENT_MAX_ACTION_RETRIES: ${AGENT_MAX_ACTION_RETRIES:-3}
+      AGENT_ENABLE_VERIFICATION: ${AGENT_ENABLE_VERIFICATION:-true}
+      AGENT_ENABLE_MEMORY: ${AGENT_ENABLE_MEMORY:-true}
+
+      # Evaluation
+      EVALUATION_BASELINE: ${EVALUATION_BASELINE:-full_system}
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+      chromadb:
+        condition: service_healthy
+
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+
+    networks:
+      - agent_network
+
+  # ------------------------------------------------------------------
+  # MCP Server (optional standalone mode)
+  # ------------------------------------------------------------------
+  mcp_server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: robotic_agent_mcp
+    restart: unless-stopped
+    command: python -m mcp_server.server --backend simulated --log-level INFO
+
+    environment:
+      MCP_ROBOT_BACKEND: ${MCP_ROBOT_BACKEND:-simulated}
+      MCP_LOG_LEVEL: ${MCP_LOG_LEVEL:-INFO}
+
+    depends_on:
+      - api
+
+    networks:
+      - agent_network
+
+# ------------------------------------------------------------------
+# Volumes
+# ------------------------------------------------------------------
+volumes:
+  postgres_data:
+    driver: local
+  chroma_data:
+    driver: local
+
+# ------------------------------------------------------------------
+# Networks
+# ------------------------------------------------------------------
+networks:
+  agent_network:
+    driver: bridge
