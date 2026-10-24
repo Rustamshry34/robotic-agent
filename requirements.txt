@@ -1,1 +1,29 @@
+# --- Web Servisi ve API ---
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+pydantic-settings>=2.5.2
+python-dotenv>=1.0.1
 
+# --- Agent ve Orkestrasyon ---
+langchain>=0.3.7
+langchain-openai>=0.2.8
+langchain-community>=0.3.5
+deepagents>2.0
+
+# --- Robot Yetenekleri (MCP) ---
+mcp>=1.2.0
+
+# --- Veritabanı ve Hafıza (PostgreSQL & ChromaDB) ---
+sqlalchemy[asyncio]>=2.0.36
+asyncpg>=0.30.0
+chromadb>=0.5.20
+
+# --- Değerlendirme ve Metrikler (Baseline & Ablasyon Deneyleri) ---
+pandas>=2.2.3
+numpy>=1.26.4
+scikit-learn>=1.5.2
+
+# --- Test ve CI/CD (GitHub Actions için) ---
+pytest>=8.3.4
+pytest-asyncio>=0.24.0
+httpx>=0.28.0
