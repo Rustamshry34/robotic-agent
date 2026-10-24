@@ -11,21 +11,22 @@ src = ["app", "mcp_server", "memory", "evaluation", "tests"]
 
 [tool.ruff.lint]
 select = [
-    "E",    # pycodestyle errors
-    "W",    # pycodestyle warnings
-    "F",    # pyflakes
-    "I",    # isort
-    "N",    # pep8-naming
-    "UP",   # pyupgrade
-    "B",    # flake8-bugbear
-    "SIM",  # flake8-simplify
-    "TCH",  # flake8-type-checking
-    "RUF",  # ruff-specific
+    "E",
+    "W",
+    "F",
+    "I",
+    "N",
+    "UP",
+    "B",
+    "SIM",
+    "TCH",
+    "RUF",
 ]
+
 ignore = [
-    "E501",   # line too long (handled by formatter)
-    "B008",   # do not perform function calls in argument defaults
-    "B905",   # zip without explicit strict
+    "E501",
+    "B008",
+    "B905",
 ]
 
 [tool.ruff.lint.per-file-ignores]
