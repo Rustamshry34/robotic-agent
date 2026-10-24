@@ -44,8 +44,7 @@ jobs:
       - name: Ruff lint check
         run: |
           ruff check app/ mcp_server/ memory/ evaluation/ tests/ \
-            --output-format=github \
-            --config pyproject.toml
+            --output-format=github
 
       - name: Ruff format check
         run: |
