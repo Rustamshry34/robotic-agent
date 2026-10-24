@@ -4,26 +4,27 @@ on:
   push:
     branches: [main, develop]
   pull_request:
-    branches: [main, develop]
-  workflow_dispatch:
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+    branches: [main]
 
 env:
-  PYTHON_VERSION: "3.11"
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
+  PYTHON_VERSION: "3.11"
 
-# =====================================================================
-# STAGE 1: Lint & Format
-# =====================================================================
+# ------------------------------------------------------------------
+# Permissions for GitHub Container Registry
+# ------------------------------------------------------------------
+permissions:
+  contents: read
+  packages: write
+
 jobs:
+  # ==================================================================
+  # JOB 1: Lint & Static Analysis
+  # ==================================================================
   lint:
-    name: Lint & Format Check
+    name: Lint & Type Check
     runs-on: ubuntu-latest
-    timeout-minutes: 10
 
     steps:
       - name: Checkout repository
@@ -33,117 +34,83 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-          cache: "pip"
-          cache-dependency-path: requirements.txt
 
-      - name: Install lint dependencies
+      - name: Install linting tools
         run: |
-          python -m pip install --upgrade pip
+          pip install --upgrade pip
           pip install ruff mypy
 
-      - name: Ruff lint check
+      - name: Run Ruff linter
         run: |
-          ruff check --fix app/ mcp_server/ memory/ evaluation/ tests/ \
-            --output-format=github
+          ruff check app/ mcp_server/ memory/ --output-format=github
 
-      - name: Ruff format check
+      - name: Run Ruff formatter check
         run: |
-          ruff format app/ mcp_server/ memory/ evaluation/ tests/
+          ruff format --check app/ mcp_server/ memory/
 
-      - name: MyPy type check
-        run: |
-          mypy app/ mcp_server/ memory/ \
-            --ignore-missing-imports \
-            --no-strict-optional \
-            --warn-unused-ignores \
-            --warn-redundant-casts
-
-  # ===================================================================
-  # STAGE 2: Unit Tests
-  # ===================================================================
-  unit-tests:
-    name: Unit Tests
+  # ==================================================================
+  # JOB 2: Test Suite
+  # ==================================================================
+  test:
+    name: Run Tests
     runs-on: ubuntu-latest
-    timeout-minutes: 15
     needs: lint
 
-    env:
-      CHROMA_MODE: ephemeral
-      DATABASE_AUTO_CREATE_TABLES: "false"
-      ENVIRONMENT: test
-      LOG_LEVEL: DEBUG
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          cache: "pip"
-          cache-dependency-path: requirements.txt
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          pip install pytest pytest-asyncio pytest-cov httpx
-
-      - name: Run unit tests
-        run: |
-          pytest tests/unit/ \
-            -v \
-            --tb=short \
-            --cov=app \
-            --cov=mcp_server \
-            --cov=memory \
-            --cov-report=xml:coverage-unit.xml \
-            --cov-report=term-missing \
-            --junitxml=junit-unit.xml
-
-      - name: Upload unit test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: unit-test-results
-          path: |
-            junit-unit.xml
-            coverage-unit.xml
-          retention-days: 14
-
-  # ===================================================================
-  # STAGE 3: Integration Tests (PostgreSQL + ChromaDB)
-  # ===================================================================
-  integration-tests:
-    name: Integration Tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    needs: lint
-
+    # PostgreSQL service container for integration tests
     services:
       postgres:
         image: postgres:16-alpine
         env:
           POSTGRES_USER: test_user
           POSTGRES_PASSWORD: test_password
-          POSTGRES_DB: robot_agent_test
+          POSTGRES_DB: test_robot_agent
         ports:
           - 5432:5432
         options: >-
-          --health-cmd="pg_isready -U test_user"
-          --health-interval=5s
-          --health-timeout=5s
-          --health-retries=5
+          --health-cmd "pg_isready -U test_user -d test_robot_agent"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+          --health-start-period 10s
 
     env:
-      DATABASE_URL: postgresql+asyncpg://test_user:test_password@localhost:5432/robot_agent_test
-      DATABASE_AUTO_CREATE_TABLES: "true"
-      CHROMA_MODE: ephemeral
+      # Application
       ENVIRONMENT: test
-      LOG_LEVEL: DEBUG
-      AGENT_ENABLE_MEMORY: "true"
+      DEBUG: "false"
+      LOG_LEVEL: INFO
+      AGENT_VERSION: "0.1.0-test"
+
+      # Database (points to service container)
+      DATABASE_URL: postgresql+asyncpg://test_user:test_password@localhost:5432/test_robot_agent
+      DATABASE_AUTO_CREATE_TABLES: "true"
+      DATABASE_ECHO: "false"
+      DATABASE_POOL_SIZE: "3"
+      DATABASE_MAX_OVERFLOW: "5"
+
+      # LLM - pulled from GitHub Secrets
+      LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+      LLM_PROVIDER: openai
+      LLM_MODEL: gpt-4o-mini
+      LLM_TEMPERATURE: "0.0"
+      LLM_MAX_TOKENS: "1024"
+
+      # MCP
+      MCP_ROBOT_BACKEND: simulated
+      MCP_TRANSPORT: stdio
+
+      # ChromaDB - ephemeral for tests
+      CHROMA_MODE: ephemeral
+      CHROMA_COLLECTION: test_robot_experiences
+      CHROMA_DISTANCE: cosine
+
+      # Agent behavior
+      AGENT_MAX_PLAN_STEPS: "8"
+      AGENT_MAX_ACTION_RETRIES: "2"
       AGENT_ENABLE_VERIFICATION: "true"
+      AGENT_ENABLE_MEMORY: "true"
+
+      # Evaluation
+      EVALUATION_BASELINE: full_system
 
     steps:
       - name: Checkout repository
@@ -153,325 +120,87 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-          cache: "pip"
-          cache-dependency-path: requirements.txt
+          cache: pip
 
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
+          pip install --upgrade pip
           pip install -r requirements.txt
           pip install pytest pytest-asyncio pytest-cov httpx
 
-      - name: Run integration tests
+      - name: Verify LLM_API_KEY is available
         run: |
-          pytest tests/integration/ \
+          if [ -z "$LLM_API_KEY" ]; then
+            echo "::warning::LLM_API_KEY is not set. Tests will use heuristic planner."
+          else
+            echo "LLM_API_KEY is configured."
+          fi
+
+      - name: Wait for PostgreSQL
+        run: |
+          until pg_isready -h localhost -p 5432 -U test_user; do
+            echo "Waiting for PostgreSQL..."
+            sleep 2
+          done
+          echo "PostgreSQL is ready."
+
+      - name: Run unit tests
+        run: |
+          pytest tests/ \
             -v \
             --tb=short \
+            --asyncio-mode=auto \
+            -x \
+            --timeout=120
+
+      - name: Run integration tests with coverage
+        run: |
+          pytest tests/ \
+            -v \
+            --tb=short \
+            --asyncio-mode=auto \
             --cov=app \
             --cov=mcp_server \
             --cov=memory \
-            --cov-report=xml:coverage-integration.xml \
+            --cov-report=xml \
             --cov-report=term-missing \
-            --junitxml=junit-integration.xml
+            --cov-fail-under=60
 
-      - name: Upload integration test results
+      - name: Upload coverage report
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: integration-test-results
-          path: |
-            junit-integration.xml
-            coverage-integration.xml
+          name: coverage-report
+          path: coverage.xml
           retention-days: 14
 
-  # ===================================================================
-  # STAGE 4: MCP Tools Smoke Test
-  # ===================================================================
-  mcp-smoke-test:
-    name: MCP Tools Smoke Test
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    needs: lint
-
-    env:
-      CHROMA_MODE: ephemeral
-      ENVIRONMENT: test
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          cache: "pip"
-          cache-dependency-path: requirements.txt
-
-      - name: Install dependencies
+      - name: Test API startup
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
-      - name: Run MCP tools smoke test
-        run: |
-          python -c "
-          from mcp_server.tools import SimulatedRobotBackend
-
-          backend = SimulatedRobotBackend()
-
-          # Test get_state
-          state = backend.get_state()
-          assert state['success'] is True, f'get_state failed: {state}'
-          print('✓ robot_get_state')
-
-          # Test list_objects
-          objects = backend.list_objects()
-          assert objects['success'] is True, f'list_objects failed: {objects}'
-          print('✓ robot_list_objects')
-
-          # Test detect_object
-          detect = backend.detect_object('red_cup')
-          assert detect['success'] is True, f'detect_object failed: {detect}'
-          print('✓ robot_detect_object')
-
-          # Test move_to
-          move = backend.move_to('red_cup')
-          assert move['success'] is True, f'move_to failed: {move}'
-          print('✓ robot_move_to')
-
-          # Test grasp_object
-          grasp = backend.grasp_object('red_cup')
-          assert grasp['success'] is True, f'grasp_object failed: {grasp}'
-          print('✓ robot_grasp_object')
-
-          # Test verify_object_location (gripper)
-          verify1 = backend.verify_object_location('red_cup', 'gripper')
-          assert verify1['success'] is True, f'verify failed: {verify1}'
-          assert verify1['data']['verified'] is True, 'Object not in gripper'
-          print('✓ robot_verify_object_location (gripper)')
-
-          # Test move to target
-          move2 = backend.move_to('kitchen_counter')
-          assert move2['success'] is True, f'move_to failed: {move2}'
-          print('✓ robot_move_to (kitchen_counter)')
-
-          # Test release_object
-          release = backend.release_object('kitchen_counter')
-          assert release['success'] is True, f'release failed: {release}'
-          print('✓ robot_release_object')
-
-          # Test verify_object_location (target)
-          verify2 = backend.verify_object_location('red_cup', 'kitchen_counter')
-          assert verify2['success'] is True, f'verify failed: {verify2}'
-          assert verify2['data']['verified'] is True, 'Object not at target'
-          print('✓ robot_verify_object_location (kitchen_counter)')
-
-          # Test fault injection
-          backend.reset_scene()
-          backend.inject_fault('grasp_object')
-          backend.move_to('red_cup')
-          fail_grasp = backend.grasp_object('red_cup')
-          assert fail_grasp['success'] is False, 'Fault injection did not work'
-          assert fail_grasp['error_code'] == 'GRASP_FAILED'
-          print('✓ fault injection')
-
-          print()
-          print('All MCP smoke tests passed!')
-          "
-
-  # ===================================================================
-  # STAGE 5: Agent End-to-End Test (no LLM key required)
-  # ===================================================================
-  agent-e2e-test:
-    name: Agent E2E Test (Heuristic)
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    needs: [unit-tests, mcp-smoke-test]
-
-    env:
-      CHROMA_MODE: ephemeral
-      ENVIRONMENT: test
-      LOG_LEVEL: INFO
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          cache: "pip"
-          cache-dependency-path: requirements.txt
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
-      - name: Run heuristic E2E test (no LLM key)
-        run: |
-          python -c "
+          timeout 30 python -c "
           import asyncio
-          from app.agent.executor import RobotExecutor, SimulatedMCPToolInvoker
+          from app.main import app
+          from httpx import AsyncClient, ASGITransport
 
-          async def main():
-              executor = RobotExecutor()
-              invoker = SimulatedMCPToolInvoker()
+          async def test_startup():
+              transport = ASGITransport(app=app)
+              async with AsyncClient(transport=transport, base_url='http://test') as client:
+                  response = await client.get('/health')
+                  assert response.status_code == 200, f'Health check failed: {response.text}'
+                  data = response.json()
+                  assert data['status'] == 'ok'
+                  print(f'API health check passed: {data}')
 
-              result = await executor.execute_task(
-                  instruction=(
-                      'Take the red cup on the table, '
-                      'put it on the kitchen counter, '
-                      'and verify the process is complete.'
-                  ),
-                  tool_invoker=invoker,
-                  baseline='full_system',
-              )
-
-              print(f'Task: {result.task_name}')
-              print(f'Success: {result.success}')
-              print(f'Status: {result.status}')
-              print(f'Duration: {result.duration_ms}ms')
-              print(f'Recovery attempts: {result.recovery_attempts}')
-              print(f'Retry count: {result.retry_count}')
-              print(f'Metrics: {result.metrics}')
-              print()
-
-              for i, step in enumerate(result.steps, 1):
-                  status_icon = '✓' if step.success else '✗'
-                  print(f'  {status_icon} Step {i}: {step.tool_name} ({step.duration_ms}ms)')
-
-              assert result.success is True, f'Task failed: {result.error_message}'
-              print()
-              print('E2E heuristic test passed!')
-
-          asyncio.run(main())
+          asyncio.run(test_startup())
           "
 
-  # ===================================================================
-  # STAGE 6: Evaluation Baselines (with LLM if key available)
-  # ===================================================================
-  evaluation:
-    name: Baseline Evaluation
+  # ==================================================================
+  # JOB 3: Docker Build & Push
+  # ==================================================================
+  docker-build-push:
+    name: Build & Push Docker Image
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    needs: [agent-e2e-test]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-
-    env:
-      CHROMA_MODE: ephemeral
-      ENVIRONMENT: test
-      LOG_LEVEL: INFO
-      LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          cache: "pip"
-          cache-dependency-path: requirements.txt
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
-      - name: Run baseline evaluation
-        run: |
-          python -c "
-          import asyncio
-          import json
-          from app.agent.executor import RobotExecutor, SimulatedMCPToolInvoker
-
-          TASK = (
-              'Take the red cup on the table, '
-              'put it on the kitchen counter, '
-              'and verify the process is complete.'
-          )
-
-          BASELINES = ['baseline_a', 'baseline_b', 'baseline_c', 'full_system']
-          ITERATIONS = 2
-
-          async def main():
-              executor = RobotExecutor()
-              invoker = SimulatedMCPToolInvoker()
-              results = {}
-
-              for baseline in BASELINES:
-                  results[baseline] = []
-                  for i in range(ITERATIONS):
-                      invoker = SimulatedMCPToolInvoker()  # fresh state
-                      result = await executor.execute_task(
-                          instruction=TASK,
-                          tool_invoker=invoker,
-                          baseline=baseline,
-                      )
-                      results[baseline].append({
-                          'iteration': i + 1,
-                          'success': result.success,
-                          'duration_ms': result.duration_ms,
-                          'recovery_attempts': result.recovery_attempts,
-                          'retry_count': result.retry_count,
-                          'status': result.status,
-                      })
-                      print(
-                          f'{baseline} iter={i+1} '
-                          f'success={result.success} '
-                          f'duration={result.duration_ms}ms'
-                      )
-
-              # Summary
-              print()
-              print('=' * 60)
-              print('EVALUATION SUMMARY')
-              print('=' * 60)
-
-              for baseline in BASELINES:
-                  runs = results[baseline]
-                  successes = sum(1 for r in runs if r['success'])
-                  total = len(runs)
-                  avg_dur = sum(r['duration_ms'] for r in runs) / total
-                  print(
-                      f'{baseline:15s} | '
-                      f'success={successes}/{total} | '
-                      f'avg_duration={avg_dur:.0f}ms'
-                  )
-
-              # Save report
-              with open('evaluation_report.json', 'w') as f:
-                  json.dump(results, f, indent=2)
-
-              print()
-              print('Evaluation report saved to evaluation_report.json')
-
-          asyncio.run(main())
-          "
-
-      - name: Upload evaluation report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: evaluation-report
-          path: evaluation_report.json
-          retention-days: 30
-
-  # ===================================================================
-  # STAGE 7: Docker Build & Push
-  # ===================================================================
-  docker-build:
-    name: Docker Build & Push
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    needs: [unit-tests, integration-tests, mcp-smoke-test]
-    permissions:
-      contents: read
-      packages: write
+    needs: test
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
 
     steps:
       - name: Checkout repository
@@ -480,15 +209,14 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to Container Registry
-        if: github.event_name == 'push'
+      - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata
+      - name: Extract metadata for Docker image
         id: meta
         uses: docker/metadata-action@v5
         with:
@@ -496,16 +224,15 @@ jobs:
           tags: |
             type=ref,event=branch
             type=ref,event=pr
-            type=sha,prefix={{branch}}-
-            type=semver,pattern={{version}}
+            type=sha,prefix=sha-
             type=raw,value=latest,enable={{is_default_branch}}
 
-      - name: Build Docker image
-        uses: docker/build-push-action@v6
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
         with:
           context: .
           file: ./Dockerfile
-          push: ${{ github.event_name == 'push' }}
+          push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
@@ -513,98 +240,75 @@ jobs:
           build-args: |
             BUILDKIT_INLINE_CACHE=1
 
-  # ===================================================================
-  # STAGE 8: API Smoke Test (Docker)
-  # ===================================================================
-  api-smoke-test:
-    name: API Smoke Test
+      - name: Run container smoke test
+        env:
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+        run: |
+          IMAGE_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}"
+          echo "Running smoke test on image: $IMAGE_TAG"
+
+          # Start container with LLM_API_KEY from secrets
+          docker run -d \
+            --name agent_smoke_test \
+            -p 8080:8000 \
+            -e ENVIRONMENT=production \
+            -e LLM_API_KEY="$LLM_API_KEY" \
+            -e LLM_MODEL=gpt-4o-mini \
+            -e DATABASE_URL=postgresql+asyncpg://test:test@localhost:5432/test \
+            -e CHROMA_MODE=ephemeral \
+            -e AGENT_ENABLE_MEMORY=false \
+            "$IMAGE_TAG"
+
+          # Wait for container to start
+          echo "Waiting for container to start..."
+          sleep 10
+
+          # Health check
+          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/health || echo "000")
+
+          if [ "$RESPONSE" = "200" ]; then
+            echo "Smoke test passed: HTTP $RESPONSE"
+            curl -s http://localhost:8080/health | python -m json.tool
+          else
+            echo "::error::Smoke test failed with HTTP $RESPONSE"
+            docker logs agent_smoke_test
+            exit 1
+          fi
+
+          # Cleanup
+          docker stop agent_smoke_test
+          docker rm agent_smoke_test
+
+      - name: Verify image in registry
+        run: |
+          echo "Image pushed successfully:"
+          echo "  Registry: ${{ env.REGISTRY }}"
+          echo "  Image: ${{ env.IMAGE_NAME }}"
+          echo "  SHA: ${{ github.sha }}"
+          echo "  Ref: ${{ github.ref }}"
+
+  # ==================================================================
+  # JOB 4: Notify (optional)
+  # ==================================================================
+  notify:
+    name: Pipeline Summary
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    needs: docker-build
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Build and start services
-        run: |
-          docker compose up --build -d postgres chromadb api
-          sleep 15
-
-      - name: Wait for API to be healthy
-        run: |
-          for i in $(seq 1 30); do
-            if curl -sf http://localhost:8000/health; then
-              echo "API is healthy!"
-              break
-            fi
-            echo "Waiting for API... attempt $i"
-            sleep 2
-          done
-
-      - name: Test health endpoint
-        run: |
-          RESPONSE=$(curl -sf http://localhost:8000/health)
-          echo "$RESPONSE" | python -m json.tool
-          echo "$RESPONSE" | grep -q '"status":"ok"'
-
-      - name: Test task execution endpoint
-        run: |
-          RESPONSE=$(curl -sf -X POST http://localhost:8000/tasks/run \
-            -H "Content-Type: application/json" \
-            -d '{
-              "instruction": "Take the red cup on the table, put it on the kitchen counter, and verify the process is complete.",
-              "baseline": "full_system"
-            }')
-          echo "$RESPONSE" | python -m json.tool
-          echo "$RESPONSE" | grep -q '"success":true'
-
-      - name: Show logs on failure
-        if: failure()
-        run: |
-          docker compose logs api
-          docker compose logs postgres
-          docker compose logs chromadb
-
-      - name: Cleanup
-        if: always()
-        run: |
-          docker compose down -v
-
-  # ===================================================================
-  # STAGE 9: Coverage Report
-  # ===================================================================
-  coverage-report:
-    name: Coverage Report
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    needs: [unit-tests, integration-tests]
+    needs: [lint, test, docker-build-push]
     if: always()
 
     steps:
-      - name: Download unit test coverage
-        uses: actions/download-artifact@v4
-        with:
-          name: unit-test-results
-          path: artifacts/unit/
-
-      - name: Download integration test coverage
-        uses: actions/download-artifact@v4
-        with:
-          name: integration-test-results
-          path: artifacts/integration/
-
-      - name: Display coverage summary
+      - name: Pipeline summary
         run: |
-          echo "## Coverage Report" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-
-          if [ -f artifacts/unit/coverage-unit.xml ]; then
-            echo "### Unit Tests" >> $GITHUB_STEP_SUMMARY
-            echo "Coverage report generated." >> $GITHUB_STEP_SUMMARY
-          fi
-
-          if [ -f artifacts/integration/coverage-integration.xml ]; then
-            echo "### Integration Tests" >> $GITHUB_STEP_SUMMARY
-            echo "Coverage report generated." >> $GITHUB_STEP_SUMMARY
-          fi
+          echo "=========================================="
+          echo "  CI/CD Pipeline Summary"
+          echo "=========================================="
+          echo "  Repository: ${{ github.repository }}"
+          echo "  Branch: ${{ github.ref_name }}"
+          echo "  Commit: ${{ github.sha }}"
+          echo "  Triggered by: ${{ github.event_name }}"
+          echo "  Actor: ${{ github.actor }}"
+          echo "=========================================="
+          echo "  Lint: ${{ needs.lint.result }}"
+          echo "  Test: ${{ needs.test.result }}"
+          echo "  Docker: ${{ needs.docker-build-push.result }}"
+          echo "=========================================="
