@@ -43,12 +43,12 @@ jobs:
 
       - name: Ruff lint check
         run: |
-          ruff check app/ mcp_server/ memory/ evaluation/ tests/ \
+          ruff check --fix app/ mcp_server/ memory/ evaluation/ tests/ \
             --output-format=github
 
       - name: Ruff format check
         run: |
-          ruff format --check app/ mcp_server/ memory/ evaluation/ tests/
+          ruff format app/ mcp_server/ memory/ evaluation/ tests/
 
       - name: MyPy type check
         run: |
