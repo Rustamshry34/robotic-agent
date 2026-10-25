@@ -47,10 +47,8 @@ from memory.models import (
 )
 
 if TYPE_CHECKING:
-    from sqlalchemy.ext.asyncio import AsyncSession
-    
     from app.agent.planner import RobotPlanner
-   
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 
 logger = logging.getLogger(__name__)
