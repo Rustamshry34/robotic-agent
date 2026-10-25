@@ -87,9 +87,9 @@ jobs:
 
       LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
       LLM_PROVIDER: openai
-      LLM_MODEL: gpt-4o-mini
+      LLM_MODEL: Qwen3.8-27B
       LLM_TEMPERATURE: "0.0"
-      LLM_MAX_TOKENS: "1024"
+      LLM_MAX_TOKENS: "4048"
 
       MCP_ROBOT_BACKEND: simulated
       MCP_TRANSPORT: stdio
