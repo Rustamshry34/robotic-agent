@@ -18,24 +18,21 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from datetime import datetime, timezone
-from typing import Any, Optional, Protocol, runtime_checkable
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 from pydantic import BaseModel, Field
 
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from app.core.config import Settings, get_settings
 from app.agent.planner import (
     DEFAULT_TOOL_SPECS,
     FailureStrategy,
     PlanStep,
     PlanStepType,
     RobotPlan,
-    RobotPlanner,
     create_planner,
 )
-
+from app.core.config import Settings, get_settings
+from mcp_server.tools import SimulatedRobotBackend
 from memory.chroma_client import ChromaMemoryClient, get_chroma_memory
 from memory.models import (
     BaselineName,
@@ -49,19 +46,21 @@ from memory.models import (
     TaskStep as DBTaskStep,
 )
 
-from mcp_server.tools import SimulatedRobotBackend
+if TYPE_CHECKING:
+    from app.agent.planner import RobotPlanner
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 
 logger = logging.getLogger(__name__)
 
 
 __all__ = [
-    "ToolInvoker",
-    "SimulatedMCPToolInvoker",
-    "ExecutorConfig",
-    "StepExecutionResult",
     "ExecutionResult",
+    "ExecutorConfig",
     "RobotExecutor",
+    "SimulatedMCPToolInvoker",
+    "StepExecutionResult",
+    "ToolInvoker",
 ]
 
 
@@ -71,7 +70,7 @@ __all__ = [
 
 
 def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def duration_ms(start: datetime, end: datetime) -> int:
@@ -109,7 +108,7 @@ def _normalize_tool_result(result: Any) -> dict[str, Any]:
     }
 
 
-def _to_baseline_enum(value: Optional[str]) -> BaselineName:
+def _to_baseline_enum(value: str | None) -> BaselineName:
     if not value:
         return BaselineName.FULL_SYSTEM
 
@@ -148,11 +147,9 @@ class ToolInvoker(Protocol):
         self,
         tool_name: str,
         arguments: dict[str, Any],
-    ) -> dict[str, Any]:
-        ...
+    ) -> dict[str, Any]: ...
 
-    def list_tools(self) -> list[dict[str, Any]]:
-        ...
+    def list_tools(self) -> list[dict[str, Any]]: ...
 
 
 class SimulatedMCPToolInvoker:
@@ -165,7 +162,7 @@ class SimulatedMCPToolInvoker:
     - evaluation smoke tests
     """
 
-    def __init__(self, backend: Optional[SimulatedRobotBackend] = None) -> None:
+    def __init__(self, backend: SimulatedRobotBackend | None = None) -> None:
         self._backend = backend or SimulatedRobotBackend()
 
     async def call_tool(
@@ -223,7 +220,7 @@ class ExecutorConfig(BaseModel):
     )
 
     @staticmethod
-    def from_settings(settings: Settings) -> "ExecutorConfig":
+    def from_settings(settings: Settings) -> ExecutorConfig:
         return ExecutorConfig(
             refresh_state_after_action=True,
             store_step_experiences=settings.agent_enable_memory,
@@ -240,12 +237,12 @@ class StepExecutionResult(BaseModel):
     success: bool
     attempts: int = 1
 
-    verified: Optional[bool] = None
+    verified: bool | None = None
 
     output: dict[str, Any] = Field(default_factory=dict)
 
-    error_code: Optional[str] = None
-    error_message: Optional[str] = None
+    error_code: str | None = None
+    error_message: str | None = None
 
     started_at: datetime
     finished_at: datetime
@@ -253,14 +250,14 @@ class StepExecutionResult(BaseModel):
 
 
 class ExecutionResult(BaseModel):
-    task_id: Optional[str] = None
+    task_id: str | None = None
     task_name: str
 
     success: bool
     status: str
 
-    error_code: Optional[str] = None
-    error_message: Optional[str] = None
+    error_code: str | None = None
+    error_message: str | None = None
 
     current_state: dict[str, Any] = Field(default_factory=dict)
 
@@ -288,10 +285,10 @@ class RobotExecutor:
 
     def __init__(
         self,
-        planner: Optional[RobotPlanner] = None,
-        settings: Optional[Settings] = None,
-        memory_client: Optional[ChromaMemoryClient] = None,
-        config: Optional[ExecutorConfig] = None,
+        planner: RobotPlanner | None = None,
+        settings: Settings | None = None,
+        memory_client: ChromaMemoryClient | None = None,
+        config: ExecutorConfig | None = None,
     ) -> None:
         self.settings = settings or get_settings()
         self.config = config or ExecutorConfig.from_settings(self.settings)
@@ -318,11 +315,11 @@ class RobotExecutor:
         self,
         instruction: str,
         tool_invoker: ToolInvoker,
-        task_name: Optional[str] = None,
-        baseline: Optional[str] = None,
-        current_state: Optional[dict[str, Any]] = None,
-        db_session: Optional[AsyncSession] = None,
-        metadata: Optional[dict[str, Any]] = None,
+        task_name: str | None = None,
+        baseline: str | None = None,
+        current_state: dict[str, Any] | None = None,
+        db_session: AsyncSession | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> ExecutionResult:
         """
         Plan and execute a task from a natural-language instruction.
@@ -369,10 +366,10 @@ class RobotExecutor:
         plan: RobotPlan,
         task_instruction: str,
         tool_invoker: ToolInvoker,
-        current_state: Optional[dict[str, Any]] = None,
-        db_session: Optional[AsyncSession] = None,
-        metadata: Optional[dict[str, Any]] = None,
-        planner: Optional[RobotPlanner] = None,
+        current_state: dict[str, Any] | None = None,
+        db_session: AsyncSession | None = None,
+        metadata: dict[str, Any] | None = None,
+        planner: RobotPlanner | None = None,
     ) -> ExecutionResult:
         """
         Execute an already-generated RobotPlan.
@@ -389,8 +386,8 @@ class RobotExecutor:
         retry_count = 0
         recovery_attempts = 0
 
-        error_code: Optional[str] = None
-        error_message: Optional[str] = None
+        error_code: str | None = None
+        error_message: str | None = None
 
         completed_successfully = False
 
@@ -545,7 +542,7 @@ class RobotExecutor:
             recovery_attempts=recovery_attempts,
             executed_steps=len(step_results),
             finished_at=finished_at,
-            duration_ms=execution_duration_ms,
+            duration_ms_value=execution_duration_ms,
         )
 
         return ExecutionResult(
@@ -576,8 +573,8 @@ class RobotExecutor:
         plan: RobotPlan,
         tool_invoker: ToolInvoker,
         current_state: dict[str, Any],
-        db_session: Optional[AsyncSession],
-        task_run: Optional[TaskRun],
+        db_session: AsyncSession | None,
+        task_run: TaskRun | None,
     ) -> StepExecutionResult:
         started_at = utcnow()
 
@@ -594,7 +591,7 @@ class RobotExecutor:
             max_attempts = step.max_retries + 1
 
         attempts = 0
-        verified: Optional[bool] = None
+        verified: bool | None = None
 
         last_result: dict[str, Any] = {
             "success": False,
@@ -754,7 +751,7 @@ class RobotExecutor:
                 tool_invoker.call_tool(tool_name, arguments or {}),
                 timeout=self.config.step_timeout_seconds,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return {
                 "success": False,
                 "message": (
@@ -776,7 +773,7 @@ class RobotExecutor:
     async def _safe_get_state(
         self,
         tool_invoker: ToolInvoker,
-        fallback: Optional[dict[str, Any]] = None,
+        fallback: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         fallback = fallback or {}
 
@@ -803,11 +800,11 @@ class RobotExecutor:
 
     async def _create_task_run(
         self,
-        db_session: Optional[AsyncSession],
+        db_session: AsyncSession | None,
         plan: RobotPlan,
         instruction: str,
-        metadata: Optional[dict[str, Any]],
-    ) -> Optional[TaskRun]:
+        metadata: dict[str, Any] | None,
+    ) -> TaskRun | None:
         if db_session is None:
             return None
 
@@ -847,11 +844,11 @@ class RobotExecutor:
 
     async def _create_step_record(
         self,
-        db_session: Optional[AsyncSession],
-        task_run: Optional[TaskRun],
+        db_session: AsyncSession | None,
+        task_run: TaskRun | None,
         step: PlanStep,
         step_index: int,
-    ) -> Optional[DBTaskStep]:
+    ) -> DBTaskStep | None:
         if db_session is None or task_run is None:
             return None
 
@@ -885,12 +882,12 @@ class RobotExecutor:
 
     async def _finalize_task_run(
         self,
-        db_session: Optional[AsyncSession],
-        task_run: Optional[TaskRun],
+        db_session: AsyncSession | None,
+        task_run: TaskRun | None,
         success: bool,
         status: str,
-        error_code: Optional[str],
-        error_message: Optional[str],
+        error_code: str | None,
+        error_message: str | None,
         completed_steps: int,
         failed_steps: int,
         retry_count: int,
@@ -958,11 +955,11 @@ class RobotExecutor:
         step_result: StepExecutionResult,
         outcome: ExperienceOutcome,
         current_state: dict[str, Any],
-        task_id: Optional[Any],
+        task_id: Any | None,
         task_name: str,
         step_index: int,
-        db_session: Optional[AsyncSession],
-        resolution: Optional[str] = None,
+        db_session: AsyncSession | None,
+        resolution: str | None = None,
     ) -> None:
         if not self.memory_client or not self.config.store_step_experiences:
             return
