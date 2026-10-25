@@ -14,10 +14,10 @@ should be provided via GitHub Actions secrets or deployment environment.
 
 from __future__ import annotations
 
-import enum
 import logging
+from enum import StrEnum
 from functools import lru_cache
-from typing import Any, Optional
+from typing import Any
 from urllib.parse import quote_plus
 
 from pydantic import (
@@ -34,23 +34,23 @@ logger = logging.getLogger(__name__)
 
 
 __all__ = [
-    "Settings",
-    "get_settings",
+    "ChromaMode",
     "Environment",
     "LogLevel",
-    "ChromaMode",
     "McpTransport",
+    "Settings",
+    "get_settings",
 ]
 
 
-class Environment(str, enum.Enum):
+class Environment(StrEnum):
     LOCAL = "local"
     DEVELOPMENT = "development"
     TEST = "test"
     PRODUCTION = "production"
 
 
-class LogLevel(str, enum.Enum):
+class LogLevel(StrEnum):
     DEBUG = "DEBUG"
     INFO = "INFO"
     WARNING = "WARNING"
@@ -58,13 +58,13 @@ class LogLevel(str, enum.Enum):
     CRITICAL = "CRITICAL"
 
 
-class ChromaMode(str, enum.Enum):
+class ChromaMode(StrEnum):
     PERSISTENT = "persistent"
     EPHEMERAL = "ephemeral"
     HTTP = "http"
 
 
-class McpTransport(str, enum.Enum):
+class McpTransport(StrEnum):
     STDIO = "stdio"
     SSE = "sse"
 
@@ -163,7 +163,7 @@ class Settings(BaseSettings):
         ),
     )
 
-    git_commit: Optional[str] = Field(
+    git_commit: str | None = Field(
         default=None,
         validation_alias=AliasChoices(
             "GIT_COMMIT",
@@ -171,14 +171,14 @@ class Settings(BaseSettings):
         ),
     )
 
-    github_run_id: Optional[str] = Field(
+    github_run_id: str | None = Field(
         default=None,
         validation_alias=AliasChoices(
             "GITHUB_RUN_ID",
         ),
     )
 
-    github_run_number: Optional[str] = Field(
+    github_run_number: str | None = Field(
         default=None,
         validation_alias=AliasChoices(
             "GITHUB_RUN_NUMBER",
@@ -204,7 +204,7 @@ class Settings(BaseSettings):
         ),
     )
 
-    llm_api_key: Optional[SecretStr] = Field(
+    llm_api_key: SecretStr | None = Field(
         default=None,
         validation_alias=AliasChoices(
             "LLM_API_KEY",
@@ -212,7 +212,7 @@ class Settings(BaseSettings):
         ),
     )
 
-    llm_base_url: Optional[str] = Field(
+    llm_base_url: str | None = Field(
         default=None,
         validation_alias=AliasChoices(
             "LLM_BASE_URL",
@@ -257,21 +257,21 @@ class Settings(BaseSettings):
     # PostgreSQL
     # ------------------------------------------------------------------
 
-    database_url: Optional[SecretStr] = Field(
+    database_url: SecretStr | None = Field(
         default=None,
         validation_alias=AliasChoices(
             "DATABASE_URL",
         ),
     )
 
-    postgres_user: Optional[str] = Field(
+    postgres_user: str | None = Field(
         default=None,
         validation_alias=AliasChoices(
             "POSTGRES_USER",
         ),
     )
 
-    postgres_password: Optional[SecretStr] = Field(
+    postgres_password: SecretStr | None = Field(
         default=None,
         validation_alias=AliasChoices(
             "POSTGRES_PASSWORD",
@@ -294,7 +294,7 @@ class Settings(BaseSettings):
         ),
     )
 
-    postgres_db: Optional[str] = Field(
+    postgres_db: str | None = Field(
         default=None,
         validation_alias=AliasChoices(
             "POSTGRES_DB",
@@ -577,7 +577,7 @@ class Settings(BaseSettings):
         return value
 
     @model_validator(mode="after")
-    def _validate_production_settings(self) -> "Settings":
+    def _validate_production_settings(self) -> Settings:
         """
         Fail fast in production if critical secrets are missing.
         """
@@ -652,7 +652,7 @@ class Settings(BaseSettings):
 
         return url
 
-    def build_database_url(self) -> Optional[str]:
+    def build_database_url(self) -> str | None:
         """
         Build async database URL from settings.
 
