@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import pytest
 
-from mcp_server.tools import SimulatedRobotBackend
+from mcp-server.tools import SimulatedRobotBackend
 
 
 @pytest.fixture
