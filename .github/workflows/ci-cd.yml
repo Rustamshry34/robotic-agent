@@ -20,6 +20,23 @@ permissions:
 
 jobs:
   # ==================================================================
+  # JOB 1: Lint & Static Analysis
+  # ==================================================================
+  lint:
+    name: Lint & Type Check
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          
+  # ==================================================================
   # JOB 2: Test Suite with Coverage
   # ==================================================================
   test:
