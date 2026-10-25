@@ -15,23 +15,19 @@ from __future__ import annotations
 import logging
 import uuid
 from contextlib import asynccontextmanager
-from typing import Any, Optional
+from typing import Any
 
 from fastapi import FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from app.agent.executor import RobotExecutor, SimulatedMCPToolInvoker
 from app.core.config import get_settings
 from app.core.database import (
     check_database_connection,
     shutdown_db,
     startup_db,
 )
-from app.agent.executor import (
-    RobotExecutor,
-    SimulatedMCPToolInvoker,
-)
-from app.agent.planner import create_planner
 
 
 logger = logging.getLogger(__name__)
@@ -127,13 +123,13 @@ class TaskRunRequest(BaseModel):
         ],
     )
 
-    task_name: Optional[str] = Field(
+    task_name: str | None = Field(
         default=None,
         max_length=255,
         description="Optional task name. Auto-generated if not provided.",
     )
 
-    baseline: Optional[str] = Field(
+    baseline: str | None = Field(
         default=None,
         description=(
             "Baseline override: baseline_a, baseline_b, baseline_c, "
@@ -141,19 +137,19 @@ class TaskRunRequest(BaseModel):
         ),
     )
 
-    metadata: Optional[dict[str, Any]] = Field(
+    metadata: dict[str, Any] | None = Field(
         default=None,
         description="Additional metadata to attach to the task run.",
     )
 
 
 class TaskRunResponse(BaseModel):
-    task_id: Optional[str] = None
+    task_id: str | None = None
     task_name: str
     success: bool
     status: str
-    error_code: Optional[str] = None
-    error_message: Optional[str] = None
+    error_code: str | None = None
+    error_message: str | None = None
     recovery_attempts: int = 0
     retry_count: int = 0
     metrics: dict[str, float] = Field(default_factory=dict)
@@ -184,7 +180,7 @@ class EvaluationRequest(BaseModel):
         description="Number of iterations per baseline.",
     )
 
-    metadata: Optional[dict[str, Any]] = Field(
+    metadata: dict[str, Any] | None = Field(
         default=None,
         description="Additional metadata for the evaluation run.",
     )
@@ -195,7 +191,7 @@ class BaselineResult(BaseModel):
     iteration: int
     success: bool
     status: str
-    error_code: Optional[str] = None
+    error_code: str | None = None
     recovery_attempts: int = 0
     retry_count: int = 0
     metrics: dict[str, float] = Field(default_factory=dict)
@@ -287,12 +283,12 @@ async def run_task(request: TaskRunRequest) -> TaskRunResponse:
             baseline=request.baseline,
             metadata=request.metadata,
         )
-    except Exception as exc:
+    except Exception:
         logger.exception("Task execution failed unexpectedly.")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Task execution failed: {exc}",
-        ) from exc
+            detail="Task execution failed. Check logs for details.",
+        ) from None
 
     return TaskRunResponse(
         task_id=result.task_id,
@@ -368,7 +364,7 @@ async def run_evaluation(request: EvaluationRequest) -> EvaluationResponse:
                     )
                 )
 
-            except Exception as exc:
+            except Exception:
                 logger.exception(
                     "Evaluation run failed: baseline=%s iteration=%d",
                     baseline,
