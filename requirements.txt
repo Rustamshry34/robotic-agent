@@ -8,7 +8,7 @@ python-dotenv>=1.0.1
 langchain>=0.3.7
 langchain-openai>=0.2.8
 langchain-community>=0.3.5
-deepagents>2.0
+deepagents>0.6.9
 
 # --- Robot Yetenekleri (MCP) ---
 mcp>=1.2.0
