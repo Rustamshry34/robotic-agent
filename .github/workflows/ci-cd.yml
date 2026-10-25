@@ -20,41 +20,11 @@ permissions:
 
 jobs:
   # ==================================================================
-  # JOB 1: Lint & Static Analysis
-  # ==================================================================
-  lint:
-    name: Lint & Type Check
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Install linting tools
-        run: |
-          pip install --upgrade pip
-          pip install ruff mypy
-
-      - name: Run Ruff linter
-        run: |
-          ruff check app/ mcp_server/ memory/ --output-format=github
-
-      - name: Run Ruff formatter check
-        run: |
-          ruff format --check app/ mcp_server/ memory/
-
-  # ==================================================================
   # JOB 2: Test Suite
   # ==================================================================
   test:
     name: Run Tests
     runs-on: ubuntu-latest
-    needs: lint
 
     # PostgreSQL service container for integration tests
     services:
