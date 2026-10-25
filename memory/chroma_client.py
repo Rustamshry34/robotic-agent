@@ -41,10 +41,11 @@ import json
 import logging
 import os
 import uuid
-from datetime import datetime, timezone
+from collections.abc import Iterable
+from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Iterable, Optional
+from typing import Any
 
 import chromadb
 
@@ -99,7 +100,7 @@ class ChromaMemoryClient:
         )
 
     @classmethod
-    def from_env(cls) -> "ChromaMemoryClient":
+    def from_env(cls) -> ChromaMemoryClient:
         """
         Create a ChromaMemoryClient from environment variables.
         """
@@ -160,7 +161,7 @@ class ChromaMemoryClient:
 
     @staticmethod
     def _normalize_state_summary(
-        state_summary: Optional[str | dict[str, Any]],
+        state_summary: str | dict[str, Any] | None,
     ) -> str:
         """
         Convert state summary into a stable string representation.
@@ -211,7 +212,7 @@ class ChromaMemoryClient:
     @staticmethod
     def _build_where(
         clauses: list[dict[str, Any]],
-    ) -> Optional[dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """
         Build a ChromaDB where filter from multiple clauses.
         """
@@ -230,10 +231,10 @@ class ChromaMemoryClient:
         action: str,
         outcome: str,
         state_summary: str = "",
-        error_code: Optional[str] = None,
-        error_message: Optional[str] = None,
-        resolution: Optional[str] = None,
-        task_name: Optional[str] = None,
+        error_code: str | None = None,
+        error_message: str | None = None,
+        resolution: str | None = None,
+        task_name: str | None = None,
     ) -> str:
         """
         Build the semantic document stored in ChromaDB.
@@ -271,15 +272,15 @@ class ChromaMemoryClient:
         self,
         action: str,
         outcome: str,
-        state_summary: Optional[str | dict[str, Any]] = None,
-        error_code: Optional[str] = None,
-        error_message: Optional[str] = None,
-        resolution: Optional[str] = None,
-        task_id: Optional[str] = None,
-        task_name: Optional[str] = None,
-        step_index: Optional[int] = None,
-        metadata: Optional[dict[str, Any]] = None,
-        experience_id: Optional[str] = None,
+        state_summary: str | dict[str, Any] | None = None,
+        error_code: str | None = None,
+        error_message: str | None = None,
+        resolution: str | None = None,
+        task_id: str | None = None,
+        task_name: str | None = None,
+        step_index: int | None = None,
+        metadata: dict[str, Any] | None = None,
+        experience_id: str | None = None,
     ) -> str:
         """
         Store a single experience in ChromaDB.
@@ -358,7 +359,7 @@ class ChromaMemoryClient:
             "task_name": task_name or "unknown",
             "step_index": int(step_index) if step_index is not None else -1,
             "state_summary": state_text,
-            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_at": datetime.now(UTC).isoformat(),
         }
 
         if error_message:
@@ -449,7 +450,7 @@ class ChromaMemoryClient:
                     else -1
                 ),
                 "state_summary": state_text,
-                "created_at": datetime.now(timezone.utc).isoformat(),
+                "created_at": datetime.now(UTC).isoformat(),
             }
 
             if experience.get("error_message"):
@@ -484,7 +485,7 @@ class ChromaMemoryClient:
         self,
         query_text: str,
         n_results: int = 5,
-        where: Optional[dict[str, Any]] = None,
+        where: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         """
         Query ChromaDB for relevant experiences.
@@ -537,7 +538,7 @@ class ChromaMemoryClient:
         self,
         query_text: str,
         n_results: int = 5,
-        where: Optional[dict[str, Any]] = None,
+        where: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         """
         Generic retrieval method for agent context building.
@@ -552,7 +553,7 @@ class ChromaMemoryClient:
         self,
         action: str,
         error_code: str,
-        state_summary: Optional[str | dict[str, Any]] = None,
+        state_summary: str | dict[str, Any] | None = None,
         n_results: int = 5,
     ) -> list[dict[str, Any]]:
         """
@@ -633,7 +634,7 @@ class ChromaMemoryClient:
     def retrieve_success_experiences(
         self,
         action: str,
-        state_summary: Optional[str | dict[str, Any]] = None,
+        state_summary: str | dict[str, Any] | None = None,
         n_results: int = 5,
     ) -> list[dict[str, Any]]:
         """
