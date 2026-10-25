@@ -14,7 +14,8 @@ from __future__ import annotations
 
 import enum
 import uuid
-from typing import TYPE_CHECKING, Any
+from datetime import datetime
+from typing import Any
 
 from sqlalchemy import (
     Boolean,
@@ -38,9 +39,6 @@ from sqlalchemy.orm import (
     relationship,
 )
 from sqlalchemy.types import JSON
-
-if TYPE_CHECKING:
-    from datetime import datetime
 
 
 JSONType = JSON().with_variant(JSONB(), "postgresql")
