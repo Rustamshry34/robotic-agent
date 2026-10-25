@@ -40,6 +40,8 @@ from sqlalchemy.ext.asyncio import (
 
 from memory.models import Base
 
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
 
 logger = logging.getLogger(__name__)
 
