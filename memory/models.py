@@ -14,8 +14,7 @@ from __future__ import annotations
 
 import enum
 import uuid
-from datetime import datetime, timezone
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
     Boolean,
@@ -39,6 +38,9 @@ from sqlalchemy.orm import (
     relationship,
 )
 from sqlalchemy.types import JSON
+
+if TYPE_CHECKING:
+    from datetime import datetime
 
 
 JSONType = JSON().with_variant(JSONB(), "postgresql")
@@ -162,17 +164,17 @@ class TaskRun(Base):
         nullable=False,
     )
 
-    agent_version: Mapped[Optional[str]] = mapped_column(
+    agent_version: Mapped[str | None] = mapped_column(
         String(64),
         nullable=True,
     )
 
-    git_commit: Mapped[Optional[str]] = mapped_column(
+    git_commit: Mapped[str | None] = mapped_column(
         String(64),
         nullable=True,
     )
 
-    success: Mapped[Optional[bool]] = mapped_column(
+    success: Mapped[bool | None] = mapped_column(
         Boolean,
         nullable=True,
     )
@@ -219,32 +221,32 @@ class TaskRun(Base):
         nullable=False,
     )
 
-    estimated_cost_usd: Mapped[Optional[float]] = mapped_column(
+    estimated_cost_usd: Mapped[float | None] = mapped_column(
         Numeric(12, 6),
         nullable=True,
     )
 
-    error_code: Mapped[Optional[str]] = mapped_column(
+    error_code: Mapped[str | None] = mapped_column(
         String(64),
         nullable=True,
     )
 
-    error_message: Mapped[Optional[str]] = mapped_column(
+    error_message: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
     )
 
-    started_at: Mapped[Optional[datetime]] = mapped_column(
+    started_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
     )
 
-    finished_at: Mapped[Optional[datetime]] = mapped_column(
+    finished_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
     )
 
-    duration_ms: Mapped[Optional[int]] = mapped_column(
+    duration_ms: Mapped[int | None] = mapped_column(
         Integer,
         nullable=True,
     )
@@ -269,20 +271,20 @@ class TaskRun(Base):
         nullable=False,
     )
 
-    steps: Mapped[list["TaskStep"]] = relationship(
+    steps: Mapped[list[TaskStep]] = relationship(
         back_populates="task",
         cascade="all, delete-orphan",
         passive_deletes=True,
         order_by="TaskStep.step_index",
     )
 
-    metrics: Mapped[list["TaskMetric"]] = relationship(
+    metrics: Mapped[list[TaskMetric]] = relationship(
         back_populates="task",
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
 
-    experiences: Mapped[list["MemoryExperience"]] = relationship(
+    experiences: Mapped[list[MemoryExperience]] = relationship(
         back_populates="task",
         passive_deletes=True,
     )
@@ -370,32 +372,32 @@ class TaskStep(Base):
         nullable=False,
     )
 
-    expected_state: Mapped[Optional[str]] = mapped_column(
+    expected_state: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
     )
 
-    actual_state: Mapped[Optional[str]] = mapped_column(
+    actual_state: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
     )
 
-    verified: Mapped[Optional[bool]] = mapped_column(
+    verified: Mapped[bool | None] = mapped_column(
         Boolean,
         nullable=True,
     )
 
-    error_code: Mapped[Optional[str]] = mapped_column(
+    error_code: Mapped[str | None] = mapped_column(
         String(64),
         nullable=True,
     )
 
-    error_message: Mapped[Optional[str]] = mapped_column(
+    error_message: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
     )
 
-    resolution: Mapped[Optional[str]] = mapped_column(
+    resolution: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
     )
@@ -406,17 +408,17 @@ class TaskStep(Base):
         nullable=False,
     )
 
-    started_at: Mapped[Optional[datetime]] = mapped_column(
+    started_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
     )
 
-    finished_at: Mapped[Optional[datetime]] = mapped_column(
+    finished_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
     )
 
-    duration_ms: Mapped[Optional[int]] = mapped_column(
+    duration_ms: Mapped[int | None] = mapped_column(
         Integer,
         nullable=True,
     )
@@ -441,7 +443,7 @@ class TaskStep(Base):
         nullable=False,
     )
 
-    task: Mapped["TaskRun"] = relationship(
+    task: Mapped[TaskRun] = relationship(
         back_populates="steps",
     )
 
@@ -497,7 +499,7 @@ class TaskMetric(Base):
         nullable=False,
     )
 
-    unit: Mapped[Optional[str]] = mapped_column(
+    unit: Mapped[str | None] = mapped_column(
         String(32),
         nullable=True,
     )
@@ -515,7 +517,7 @@ class TaskMetric(Base):
         nullable=False,
     )
 
-    task: Mapped["TaskRun"] = relationship(
+    task: Mapped[TaskRun] = relationship(
         back_populates="metrics",
     )
 
@@ -545,14 +547,14 @@ class MemoryExperience(Base):
         primary_key=True,
     )
 
-    task_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    task_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid,
         ForeignKey("task_runs.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )
 
-    step_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+    step_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid,
         ForeignKey("task_steps.id", ondelete="SET NULL"),
         nullable=True,
@@ -578,27 +580,27 @@ class MemoryExperience(Base):
         index=True,
     )
 
-    task_name: Mapped[Optional[str]] = mapped_column(
+    task_name: Mapped[str | None] = mapped_column(
         String(255),
         nullable=True,
     )
 
-    step_index: Mapped[Optional[int]] = mapped_column(
+    step_index: Mapped[int | None] = mapped_column(
         Integer,
         nullable=True,
     )
 
-    state_summary: Mapped[Optional[str]] = mapped_column(
+    state_summary: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
     )
 
-    error_message: Mapped[Optional[str]] = mapped_column(
+    error_message: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
     )
 
-    resolution: Mapped[Optional[str]] = mapped_column(
+    resolution: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
     )
@@ -609,7 +611,7 @@ class MemoryExperience(Base):
         nullable=False,
     )
 
-    chroma_synced_at: Mapped[Optional[datetime]] = mapped_column(
+    chroma_synced_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
     )
@@ -627,7 +629,7 @@ class MemoryExperience(Base):
         nullable=False,
     )
 
-    task: Mapped[Optional["TaskRun"]] = relationship(
+    task: Mapped[TaskRun | None] = relationship(
         back_populates="experiences",
     )
 
