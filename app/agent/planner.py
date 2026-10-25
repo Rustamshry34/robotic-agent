@@ -20,13 +20,12 @@ import asyncio
 import json
 import logging
 import re
-from enum import Enum
-from typing import Any, Optional
-
-from pydantic import BaseModel, Field, field_validator
+from enum import StrEnum
+from typing import Any
 
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
+from pydantic import BaseModel, Field, field_validator
 
 from app.core.config import Settings, get_settings
 from memory.chroma_client import ChromaMemoryClient, get_chroma_memory
@@ -36,11 +35,12 @@ logger = logging.getLogger(__name__)
 
 
 __all__ = [
+    "DEFAULT_TOOL_SPECS",
+    "FailureStrategy",
     "PlanStep",
     "PlanStepType",
-    "FailureStrategy",
-    "RobotPlan",
     "PlannerConfig",
+    "RobotPlan",
     "RobotPlanner",
     "create_planner",
 ]
@@ -51,14 +51,14 @@ __all__ = [
 # ----------------------------------------------------------------------
 
 
-class PlanStepType(str, Enum):
+class PlanStepType(StrEnum):
     ACTION = "action"
     OBSERVATION = "observation"
     VERIFICATION = "verification"
     RECOVERY = "recovery"
 
 
-class FailureStrategy(str, Enum):
+class FailureStrategy(StrEnum):
     RETRY = "retry"
     REPLAN = "replan"
     ABORT = "abort"
@@ -78,7 +78,7 @@ class PlanStep(BaseModel):
 
     expected_state: str = ""
 
-    verification_tool: Optional[str] = None
+    verification_tool: str | None = None
     verification_payload: dict[str, Any] = Field(default_factory=dict)
 
     on_failure: FailureStrategy = FailureStrategy.REPLAN
@@ -132,8 +132,8 @@ class PlannerConfig(BaseModel):
     @staticmethod
     def from_settings(
         settings: Settings,
-        baseline: Optional[str] = None,
-    ) -> "PlannerConfig":
+        baseline: str | None = None,
+    ) -> PlannerConfig:
         """
         Build planner config from app settings.
 
@@ -378,10 +378,10 @@ class RobotPlanner:
 
     def __init__(
         self,
-        settings: Optional[Settings] = None,
-        memory_client: Optional[ChromaMemoryClient] = None,
-        config: Optional[PlannerConfig] = None,
-        llm: Optional[Any] = None,
+        settings: Settings | None = None,
+        memory_client: ChromaMemoryClient | None = None,
+        config: PlannerConfig | None = None,
+        llm: Any | None = None,
     ) -> None:
         self.settings = settings or get_settings()
         self.config = config or PlannerConfig.from_settings(self.settings)
@@ -400,7 +400,7 @@ class RobotPlanner:
 
         self.llm = llm or self._create_llm()
 
-    def _create_llm(self) -> Optional[ChatOpenAI]:
+    def _create_llm(self) -> ChatOpenAI | None:
         """
         Create the LangChain chat model.
 
@@ -439,9 +439,9 @@ class RobotPlanner:
     async def plan(
         self,
         task_instruction: str,
-        task_name: Optional[str] = None,
-        current_state: Optional[dict[str, Any]] = None,
-        available_tools: Optional[list[dict[str, Any]]] = None,
+        task_name: str | None = None,
+        current_state: dict[str, Any] | None = None,
+        available_tools: list[dict[str, Any]] | None = None,
     ) -> RobotPlan:
         """
         Create a structured robot plan for a task.
@@ -505,10 +505,10 @@ class RobotPlanner:
         failed_plan: RobotPlan,
         failed_step: PlanStep,
         error_code: str,
-        error_message: Optional[str] = None,
-        current_state: Optional[dict[str, Any]] = None,
-        available_tools: Optional[list[dict[str, Any]]] = None,
-        task_name: Optional[str] = None,
+        error_message: str | None = None,
+        current_state: dict[str, Any] | None = None,
+        available_tools: list[dict[str, Any]] | None = None,
+        task_name: str | None = None,
     ) -> RobotPlan:
         """
         Create a recovery plan after a failed step.
@@ -624,7 +624,7 @@ class RobotPlanner:
         failed_plan: RobotPlan,
         failed_step: PlanStep,
         error_code: str,
-        error_message: Optional[str],
+        error_message: str | None,
     ) -> RobotPlan:
         error_context = {
             "failed_step_id": failed_step.step_id,
@@ -947,7 +947,7 @@ class RobotPlanner:
         failed_plan: RobotPlan,
         failed_step: PlanStep,
         error_code: str,
-        error_message: Optional[str],
+        error_message: str | None,
     ) -> RobotPlan:
         """
         Deterministic fallback recovery planner.
@@ -1034,9 +1034,9 @@ class RobotPlanner:
 
 
 def create_planner(
-    settings: Optional[Settings] = None,
-    memory_client: Optional[ChromaMemoryClient] = None,
-    baseline: Optional[str] = None,
+    settings: Settings | None = None,
+    memory_client: ChromaMemoryClient | None = None,
+    baseline: str | None = None,
 ) -> RobotPlanner:
     """
     Create a RobotPlanner.
