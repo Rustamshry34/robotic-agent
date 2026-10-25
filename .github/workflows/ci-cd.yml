@@ -73,7 +73,7 @@ jobs:
 
       LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
       LLM_PROVIDER: openai
-      LLM_MODEL: Qwen3.8-27B
+      LLM_MODEL: gpt-6-luna
       LLM_TEMPERATURE: "0.0"
       LLM_MAX_TOKENS: "4048"
 
