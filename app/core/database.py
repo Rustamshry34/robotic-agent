@@ -26,8 +26,8 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import AsyncGenerator
 from functools import lru_cache
-from typing import AsyncGenerator
 from urllib.parse import quote_plus, urlparse, urlunparse
 
 from sqlalchemy import text
@@ -45,14 +45,14 @@ logger = logging.getLogger(__name__)
 
 
 __all__ = [
+    "check_database_connection",
+    "dispose_db",
+    "get_db_session",
     "get_engine",
     "get_session_factory",
-    "get_db_session",
     "init_db",
-    "check_database_connection",
-    "startup_db",
     "shutdown_db",
-    "dispose_db",
+    "startup_db",
 ]
 
 
