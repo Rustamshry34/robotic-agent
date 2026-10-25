@@ -25,7 +25,7 @@ jobs:
   lint:
     name: Lint & Type Check
     runs-on: ubuntu-latest
-    continue-on-error: true  # Lint hataları pipeline'ı bloklamaz
+    continue-on-error: true
 
     steps:
       - name: Checkout repository
@@ -43,19 +43,20 @@ jobs:
 
       - name: Run Ruff linter
         run: |
-          ruff check app/ mcp_server/ memory/ --output-format=github
+          ruff check app/ mcp_server/ memory/ evaluation/ --output-format=github
 
       - name: Run Ruff formatter check
         run: |
-          ruff format --check app/ mcp_server/ memory/
+          ruff format --check app/ mcp_server/ memory/ evaluation/
+
   # ==================================================================
-  # JOB 2: Test Suite
+  # JOB 2: Test Suite with Coverage
   # ==================================================================
   test:
     name: Run Tests
     runs-on: ubuntu-latest
+    needs: lint
 
-    # PostgreSQL service container for integration tests
     services:
       postgres:
         image: postgres:16-alpine
@@ -73,42 +74,35 @@ jobs:
           --health-start-period 10s
 
     env:
-      # Application
       ENVIRONMENT: test
       DEBUG: "false"
       LOG_LEVEL: INFO
       AGENT_VERSION: "0.1.0-test"
 
-      # Database (points to service container)
       DATABASE_URL: postgresql+asyncpg://test_user:test_password@localhost:5432/test_robot_agent
       DATABASE_AUTO_CREATE_TABLES: "true"
       DATABASE_ECHO: "false"
       DATABASE_POOL_SIZE: "3"
       DATABASE_MAX_OVERFLOW: "5"
 
-      # LLM - pulled from GitHub Secrets
       LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
       LLM_PROVIDER: openai
       LLM_MODEL: gpt-4o-mini
       LLM_TEMPERATURE: "0.0"
       LLM_MAX_TOKENS: "1024"
 
-      # MCP
       MCP_ROBOT_BACKEND: simulated
       MCP_TRANSPORT: stdio
 
-      # ChromaDB - ephemeral for tests
       CHROMA_MODE: ephemeral
       CHROMA_COLLECTION: test_robot_experiences
       CHROMA_DISTANCE: cosine
 
-      # Agent behavior
       AGENT_MAX_PLAN_STEPS: "8"
       AGENT_MAX_ACTION_RETRIES: "2"
       AGENT_ENABLE_VERIFICATION: "true"
       AGENT_ENABLE_MEMORY: "true"
 
-      # Evaluation
       EVALUATION_BASELINE: full_system
 
     steps:
@@ -125,7 +119,7 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest pytest-asyncio pytest-cov httpx
+          pip install pytest pytest-asyncio pytest-cov pytest-timeout httpx
 
       - name: Verify LLM_API_KEY is available
         run: |
@@ -143,34 +137,36 @@ jobs:
           done
           echo "PostgreSQL is ready."
 
-      - name: Run unit tests
+      - name: Run all tests with coverage
         run: |
           pytest tests/ \
             -v \
             --tb=short \
             --asyncio-mode=auto \
-            -x \
-            --timeout=120
-
-      - name: Run integration tests with coverage
-        run: |
-          pytest tests/ \
-            -v \
-            --tb=short \
-            --asyncio-mode=auto \
+            --timeout=120 \
             --cov=app \
             --cov=mcp_server \
             --cov=memory \
-            --cov-report=xml \
+            --cov=evaluation \
+            --cov-report=xml:coverage.xml \
             --cov-report=term-missing \
+            --cov-report=html:htmlcov \
             --cov-fail-under=60
 
-      - name: Upload coverage report
+      - name: Upload coverage XML artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-report
+          name: coverage-xml
           path: coverage.xml
+          retention-days: 14
+
+      - name: Upload coverage HTML artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-html
+          path: htmlcov/
           retention-days: 14
 
       - name: Test API startup
@@ -193,12 +189,180 @@ jobs:
           "
 
   # ==================================================================
-  # JOB 3: Docker Build & Push
+  # JOB 3: Coverage Summary
+  # ==================================================================
+  coverage-summary:
+    name: Coverage Summary
+    runs-on: ubuntu-latest
+    needs: test
+    if: always()
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download coverage XML
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-xml
+          path: .
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install coverage
+        run: pip install coverage
+
+      - name: Generate coverage summary
+        run: |
+          python -c "
+          import xml.etree.ElementTree as ET
+          import os
+
+          tree = ET.parse('coverage.xml')
+          root = tree.getroot()
+
+          line_rate = float(root.attrib.get('line-rate', 0))
+          branch_rate = float(root.attrib.get('branch-rate', 0))
+          lines_valid = int(root.attrib.get('lines-valid', 0))
+          lines_covered = int(root.attrib.get('lines-covered', 0))
+
+          coverage_pct = line_rate * 100
+
+          summary = f'''## 📊 Coverage Report
+
+          - **Line Coverage**: {coverage_pct:.2f}% ({lines_covered}/{lines_valid} lines)
+          - **Branch Coverage**: {branch_rate * 100:.2f}%
+          - **Status**: {'✅ PASS' if coverage_pct >= 60 else '❌ FAIL'}
+
+          ### Coverage by Module
+          '''
+
+          for package in root.findall('.//package'):
+              pkg_name = package.attrib.get('name', 'unknown')
+              pkg_line_rate = float(package.attrib.get('line-rate', 0))
+              summary += f'- `{pkg_name}`: {pkg_line_rate * 100:.2f}%\n'
+
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as f:
+              f.write(summary)
+          "
+
+  # ==================================================================
+  # JOB 4: Evaluation Pipeline
+  # ==================================================================
+  evaluation:
+    name: Run Baseline Evaluation
+    runs-on: ubuntu-latest
+    needs: test
+
+    env:
+      ENVIRONMENT: test
+      LOG_LEVEL: INFO
+      AGENT_VERSION: "0.1.0-eval"
+
+      LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+      LLM_PROVIDER: openai
+      LLM_MODEL: gpt-4o-mini
+      LLM_TEMPERATURE: "0.0"
+      LLM_MAX_TOKENS: "2048"
+
+      MCP_ROBOT_BACKEND: simulated
+      MCP_TRANSPORT: stdio
+
+      CHROMA_MODE: ephemeral
+      CHROMA_COLLECTION: eval_robot_experiences
+      CHROMA_DISTANCE: cosine
+
+      AGENT_MAX_PLAN_STEPS: "12"
+      AGENT_MAX_ACTION_RETRIES: "3"
+      AGENT_ENABLE_VERIFICATION: "true"
+      AGENT_ENABLE_MEMORY: "true"
+
+      EVALUATION_BASELINE: full_system
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Verify LLM_API_KEY is available
+        run: |
+          if [ -z "$LLM_API_KEY" ]; then
+            echo "::warning::LLM_API_KEY is not set. Evaluation will use heuristic planner."
+          else
+            echo "LLM_API_KEY is configured."
+          fi
+
+      - name: Run baseline evaluation experiment
+        run: |
+          python -m evaluation.baselines \
+            --instruction "Take the red cup on the table and put it on the kitchen counter" \
+            --baselines baseline_a baseline_b baseline_c full_system \
+            --iterations 3 \
+            --seed 42 \
+            --output eval_results.json \
+            --log-level INFO
+
+      - name: Generate evaluation reports
+        run: |
+          python -c "
+          import asyncio
+          import json
+          from pathlib import Path
+          from evaluation.baselines import ExperimentResult
+          from evaluation.metrics import ReportGenerator
+
+          async def generate_reports():
+              with open('eval_results.json', 'r') as f:
+                  data = json.load(f)
+              
+              result = ExperimentResult(**data)
+              reporter = ReportGenerator(result)
+              
+              reporter.generate_markdown('eval_report.md')
+              reporter.generate_csv('eval_raw_data.csv')
+              
+              print('Reports generated successfully!')
+
+          asyncio.run(generate_reports())
+          "
+
+      - name: Upload evaluation artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: evaluation-results
+          path: |
+            eval_results.json
+            eval_report.md
+            eval_raw_data.csv
+          retention-days: 30
+
+      - name: Display evaluation summary
+        run: |
+          if [ -f eval_report.md ]; then
+            cat eval_report.md >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # ==================================================================
+  # JOB 5: Docker Build & Push
   # ==================================================================
   docker-build-push:
     name: Build & Push Docker Image
     runs-on: ubuntu-latest
-    needs: test
+    needs: evaluation
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
 
     steps:
@@ -239,23 +403,39 @@ jobs:
           build-args: |
             BUILDKIT_INLINE_CACHE=1
 
-      - name: Run container smoke test
+      - name: Run container smoke test with environment variables
         env:
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_MODEL: ${{ vars.LLM_MODEL || 'gpt-4o-mini' }}
+          LLM_BASE_URL: ${{ secrets.LLM_BASE_URL || '' }}
         run: |
           IMAGE_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}"
           echo "Running smoke test on image: $IMAGE_TAG"
 
-          # Start container with LLM_API_KEY from secrets
+          # Start container with comprehensive environment variables
           docker run -d \
             --name agent_smoke_test \
             -p 8080:8000 \
             -e ENVIRONMENT=production \
+            -e LOG_LEVEL=INFO \
+            -e AGENT_VERSION="0.1.0-smoke" \
             -e LLM_API_KEY="$LLM_API_KEY" \
-            -e LLM_MODEL=gpt-4o-mini \
+            -e LLM_MODEL="$LLM_MODEL" \
+            -e LLM_BASE_URL="$LLM_BASE_URL" \
+            -e LLM_PROVIDER=openai \
+            -e LLM_TEMPERATURE=0.0 \
+            -e LLM_MAX_TOKENS=2048 \
             -e DATABASE_URL=postgresql+asyncpg://test:test@localhost:5432/test \
+            -e DATABASE_AUTO_CREATE_TABLES=false \
             -e CHROMA_MODE=ephemeral \
+            -e CHROMA_COLLECTION=smoke_test_experiences \
+            -e MCP_ROBOT_BACKEND=simulated \
+            -e MCP_TRANSPORT=stdio \
+            -e AGENT_MAX_PLAN_STEPS=12 \
+            -e AGENT_MAX_ACTION_RETRIES=3 \
+            -e AGENT_ENABLE_VERIFICATION=true \
             -e AGENT_ENABLE_MEMORY=false \
+            -e EVALUATION_BASELINE=full_system \
             "$IMAGE_TAG"
 
           # Wait for container to start
@@ -266,12 +446,30 @@ jobs:
           RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/health || echo "000")
 
           if [ "$RESPONSE" = "200" ]; then
-            echo "Smoke test passed: HTTP $RESPONSE"
+            echo "✅ Health check passed: HTTP $RESPONSE"
             curl -s http://localhost:8080/health | python -m json.tool
           else
-            echo "::error::Smoke test failed with HTTP $RESPONSE"
+            echo "::error::❌ Health check failed with HTTP $RESPONSE"
             docker logs agent_smoke_test
             exit 1
+          fi
+
+          # Optional: Run a simple task to verify full functionality
+          echo "Running a simple task..."
+          TASK_RESPONSE=$(curl -s -X POST http://localhost:8080/tasks/run \
+            -H "Content-Type: application/json" \
+            -d '{"instruction":"Check the robot state","baseline":"baseline_a"}' \
+            -w "\n%{http_code}" || echo -e "\n000")
+
+          TASK_HTTP_CODE=$(echo "$TASK_RESPONSE" | tail -n1)
+          TASK_BODY=$(echo "$TASK_RESPONSE" | sed '$d')
+
+          if [ "$TASK_HTTP_CODE" = "200" ]; then
+            echo "✅ Task execution passed: HTTP $TASK_HTTP_CODE"
+            echo "$TASK_BODY" | python -m json.tool
+          else
+            echo "::warning::⚠️ Task execution returned HTTP $TASK_HTTP_CODE (non-critical)"
+            echo "$TASK_BODY"
           fi
 
           # Cleanup
@@ -280,19 +478,19 @@ jobs:
 
       - name: Verify image in registry
         run: |
-          echo "Image pushed successfully:"
+          echo "✅ Image pushed successfully:"
           echo "  Registry: ${{ env.REGISTRY }}"
           echo "  Image: ${{ env.IMAGE_NAME }}"
           echo "  SHA: ${{ github.sha }}"
           echo "  Ref: ${{ github.ref }}"
 
   # ==================================================================
-  # JOB 4: Notify (optional)
+  # JOB 6: Pipeline Summary
   # ==================================================================
-  notify:
+  pipeline-summary:
     name: Pipeline Summary
     runs-on: ubuntu-latest
-    needs: [lint, test, docker-build-push]
+    needs: [lint, test, coverage-summary, evaluation, docker-build-push]
     if: always()
 
     steps:
@@ -309,5 +507,26 @@ jobs:
           echo "=========================================="
           echo "  Lint: ${{ needs.lint.result }}"
           echo "  Test: ${{ needs.test.result }}"
+          echo "  Coverage: ${{ needs.coverage-summary.result }}"
+          echo "  Evaluation: ${{ needs.evaluation.result }}"
           echo "  Docker: ${{ needs.docker-build-push.result }}"
           echo "=========================================="
+
+          # Write to GitHub Step Summary
+          cat >> $GITHUB_STEP_SUMMARY <<EOF
+          ## 🚀 CI/CD Pipeline Summary
+
+          | Job | Status |
+          |-----|--------|
+          | Lint | ${{ needs.lint.result == 'success' && '✅' || needs.lint.result == 'skipped' && '⏭️' || '❌' }} ${{ needs.lint.result }} |
+          | Test | ${{ needs.test.result == 'success' && '✅' || needs.test.result == 'skipped' && '⏭️' || '❌' }} ${{ needs.test.result }} |
+          | Coverage | ${{ needs.coverage-summary.result == 'success' && '✅' || needs.coverage-summary.result == 'skipped' && '⏭️' || '❌' }} ${{ needs.coverage-summary.result }} |
+          | Evaluation | ${{ needs.evaluation.result == 'success' && '✅' || needs.evaluation.result == 'skipped' && '⏭️' || '❌' }} ${{ needs.evaluation.result }} |
+          | Docker | ${{ needs.docker-build-push.result == 'success' && '✅' || needs.docker-build-push.result == 'skipped' && '⏭️' || '❌' }} ${{ needs.docker-build-push.result }} |
+
+          **Repository**: \`${{ github.repository }}\`  
+          **Branch**: \`${{ github.ref_name }}\`  
+          **Commit**: \`${{ github.sha }}\`  
+          **Actor**: \`${{ github.actor }}\`
+          EOF
+        
