@@ -5,15 +5,12 @@ Endpoints:
     GET  /health                    - Service health check
     GET  /health/db                 - Database connectivity check
     POST /tasks/run                 - Execute a robot task
-    GET  /tasks/{task_id}           - Get task execution details
-    POST /evaluation/run            - Run baseline comparison experiment
-    GET  /evaluation/{eval_id}      - Get evaluation results
+    POST /evaluation/run            - Run baseline comparison experiment (via evaluation.baselines)
 """
 
 from __future__ import annotations
 
 import logging
-import uuid
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -27,6 +24,11 @@ from app.core.database import (
     check_database_connection,
     shutdown_db,
     startup_db,
+)
+from evaluation.baselines import (
+    AVAILABLE_BASELINES,
+    BaselineExperiment,
+    ExperimentResult,
 )
 
 
@@ -164,12 +166,7 @@ class EvaluationRequest(BaseModel):
     )
 
     baselines: list[str] = Field(
-        default=[
-            "baseline_a",
-            "baseline_b",
-            "baseline_c",
-            "full_system",
-        ],
+        default=list(AVAILABLE_BASELINES),
         description="List of baselines to compare.",
     )
 
@@ -180,30 +177,15 @@ class EvaluationRequest(BaseModel):
         description="Number of iterations per baseline.",
     )
 
+    seed: int | None = Field(
+        default=None,
+        description="Optional random seed for reproducibility.",
+    )
+
     metadata: dict[str, Any] | None = Field(
         default=None,
         description="Additional metadata for the evaluation run.",
     )
-
-
-class BaselineResult(BaseModel):
-    baseline: str
-    iteration: int
-    success: bool
-    status: str
-    error_code: str | None = None
-    recovery_attempts: int = 0
-    retry_count: int = 0
-    metrics: dict[str, float] = Field(default_factory=dict)
-    duration_ms: int = 0
-
-
-class EvaluationResponse(BaseModel):
-    evaluation_id: str
-    instruction: str
-    total_runs: int
-    results: list[BaselineResult] = Field(default_factory=list)
-    summary: dict[str, Any] = Field(default_factory=dict)
 
 
 class HealthResponse(BaseModel):
@@ -311,127 +293,45 @@ async def run_task(request: TaskRunRequest) -> TaskRunResponse:
 
 @app.post(
     "/evaluation/run",
-    response_model=EvaluationResponse,
+    response_model=ExperimentResult,
     status_code=status.HTTP_200_OK,
     tags=["evaluation"],
 )
-async def run_evaluation(request: EvaluationRequest) -> EvaluationResponse:
+async def run_evaluation(request: EvaluationRequest) -> ExperimentResult:
     """
     Run a baseline comparison experiment.
 
-    Executes the same task instruction across multiple baselines
-    and returns per-baseline results with summary statistics.
+    Delegates to evaluation.baselines.BaselineExperiment for:
+    - Reproducible seeding
+    - Rich metric collection (verified steps, error distribution, etc.)
+    - Centralized summary generation
     """
-    evaluation_id = str(uuid.uuid4())
-    executor: RobotExecutor = app.state.executor
-    tool_invoker: SimulatedMCPToolInvoker = app.state.tool_invoker
-
-    results: list[BaselineResult] = []
-
-    for baseline in request.baselines:
-        for iteration in range(1, request.iterations + 1):
-            logger.info(
-                "Evaluation run: baseline=%s iteration=%d/%d",
-                baseline,
-                iteration,
-                request.iterations,
-            )
-
-            try:
-                result = await executor.execute_task(
-                    instruction=request.instruction,
-                    tool_invoker=tool_invoker,
-                    baseline=baseline,
-                    metadata={
-                        **(request.metadata or {}),
-                        "evaluation_id": evaluation_id,
-                        "baseline": baseline,
-                        "iteration": iteration,
-                    },
-                )
-
-                results.append(
-                    BaselineResult(
-                        baseline=baseline,
-                        iteration=iteration,
-                        success=result.success,
-                        status=result.status,
-                        error_code=result.error_code,
-                        recovery_attempts=result.recovery_attempts,
-                        retry_count=result.retry_count,
-                        metrics=result.metrics,
-                        duration_ms=result.duration_ms,
-                    )
-                )
-
-            except Exception:
-                logger.exception(
-                    "Evaluation run failed: baseline=%s iteration=%d",
-                    baseline,
-                    iteration,
-                )
-
-                results.append(
-                    BaselineResult(
-                        baseline=baseline,
-                        iteration=iteration,
-                        success=False,
-                        status="error",
-                        error_code="EVALUATION_EXCEPTION",
-                    )
-                )
-
-    summary = _build_evaluation_summary(results)
-
-    return EvaluationResponse(
-        evaluation_id=evaluation_id,
-        instruction=request.instruction,
-        total_runs=len(results),
-        results=results,
-        summary=summary,
-    )
-
-
-def _build_evaluation_summary(
-    results: list[BaselineResult],
-) -> dict[str, Any]:
-    """
-    Build summary statistics for evaluation results.
-    """
-    if not results:
-        return {}
-
-    baselines = sorted({r.baseline for r in results})
-    summary: dict[str, Any] = {}
-
-    for baseline in baselines:
-        baseline_results = [r for r in results if r.baseline == baseline]
-        total = len(baseline_results)
-        successes = sum(1 for r in baseline_results if r.success)
-        failures = total - successes
-
-        avg_duration = (
-            sum(r.duration_ms for r in baseline_results) / total
-            if total > 0
-            else 0
+    try:
+        experiment = BaselineExperiment(
+            instruction=request.instruction,
+            baselines=request.baselines,
+            iterations=request.iterations,
+            seed=request.seed,
+            metadata=request.metadata,
         )
 
-        total_recoveries = sum(
-            r.recovery_attempts for r in baseline_results
-        )
-        total_retries = sum(r.retry_count for r in baseline_results)
+        result = await experiment.run()
+        return result
 
-        summary[baseline] = {
-            "total_runs": total,
-            "success_count": successes,
-            "failure_count": failures,
-            "success_rate": successes / total if total > 0 else 0.0,
-            "average_duration_ms": round(avg_duration, 2),
-            "total_recovery_attempts": total_recoveries,
-            "total_retries": total_retries,
-        }
+    except ValueError as exc:
+        # Catch invalid baseline names or other validation errors from BaselineExperiment
+        logger.warning("Evaluation request validation failed: %s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
 
-    return summary
+    except Exception as exc:
+        logger.exception("Evaluation experiment failed unexpectedly.")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Evaluation experiment failed. Check logs for details.",
+        ) from exc
 
 
 # ------------------------------------------------------------------
