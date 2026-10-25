@@ -26,8 +26,8 @@ from __future__ import annotations
 
 import logging
 import os
-from collections.abc import AsyncGenerator
 from functools import lru_cache
+from typing import TYPE_CHECKING
 from urllib.parse import quote_plus, urlparse, urlunparse
 
 from sqlalchemy import text
@@ -43,6 +43,7 @@ from memory.models import Base
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
+
 logger = logging.getLogger(__name__)
 
 
@@ -56,7 +57,6 @@ __all__ = [
     "shutdown_db",
     "startup_db",
 ]
-
 
 def _env_bool(name: str, default: bool = False) -> bool:
     """
