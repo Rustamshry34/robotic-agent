@@ -490,6 +490,8 @@ class TestEvaluationEndpoints:
         assert response.status_code == 200
 
         # Verify executor was called with metadata
+        # mock_executor.execute_task çağrıldığını doğrula
+        assert mock_executor.execute_task.called
         call_kwargs = mock_executor.execute_task.call_args.kwargs
         assert call_kwargs["metadata"]["experiment_name"] == "test_experiment"
         assert "experiment_id" in call_kwargs["metadata"]
@@ -530,6 +532,9 @@ class TestEvaluationEndpoints:
 
         # Should have 2 results even though one failed
         assert len(data["results"]) == 2
+
+        # İlk sonuç başarılı
+        assert data["results"][0]["success"] is True
 
         # Second result should indicate error
         error_result = data["results"][1]
@@ -590,9 +595,11 @@ class TestRequestValidation:
         )
 
         # Should still work, just no results
-        assert response.status_code == 200
+        assert response.status_code == 400
         data = response.json()
-        assert len(data["results"]) == 0
+        assert "detail" in data
+        assert "At least one baseline" in data["detail"]
+        # assert len(data["results"]) == 0
 
     @pytest.mark.asyncio
     async def test_run_evaluation_invalid_iterations(self, mock_client):
