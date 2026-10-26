@@ -420,10 +420,17 @@ class RobotPlanner:
         kwargs: dict[str, Any] = {
             "model": self.settings.llm_model,
             "api_key": self.settings.llm_api_key,
+            "base_url": self.settings.llm_base_url or "https://openrouter.ai/api/v1",
             "temperature": self.settings.llm_temperature,
             "max_tokens": self.settings.llm_max_tokens,
             "timeout": self.settings.llm_timeout_seconds,
             "max_retries": self.settings.llm_max_retries,
+            # OpenRouter Reasoning desteği için extra_body ekliyoruz
+            "model_kwargs": {
+                "extra_body": {
+                    "reasoning": {"enabled": True}
+                }
+            },
         }
 
         if self.settings.llm_base_url:
