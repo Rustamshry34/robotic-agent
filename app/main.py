@@ -306,6 +306,9 @@ async def run_evaluation(request: EvaluationRequest) -> ExperimentResult:
     - Rich metric collection (verified steps, error distribution, etc.)
     - Centralized summary generation
     """
+    
+    executor: RobotExecutor = app.state.executor  # ← app.state'ten al
+    
     try:
         experiment = BaselineExperiment(
             instruction=request.instruction,
@@ -313,6 +316,7 @@ async def run_evaluation(request: EvaluationRequest) -> ExperimentResult:
             iterations=request.iterations,
             seed=request.seed,
             metadata=request.metadata,
+            executor=executor,  # ← YENİ: executor'ı inject et
         )
 
         result = await experiment.run()
