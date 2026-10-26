@@ -182,7 +182,7 @@ class TestGraspObject:
         result = backend.grasp_object("red_cup")
 
         assert result["success"] is False
-        assert result["error_code"] == "ALREADY_GRASPED"
+        assert result["error_code"] == "ALREADY_HOLDING"
 
     def test_grasp_out_of_reach(self, backend: SimulatedRobotBackend):
         """Test grasping an object that is out of reach."""
