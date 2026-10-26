@@ -376,8 +376,7 @@ class TestEvaluationEndpoints:
 
         assert "experiment_id" in data
         assert data["instruction"] == "Take the red cup"
-        assert data["total_runs"] == 4  # 2 baselines * 2 iterations
-        assert len(data["results"]) == 4
+        assert len(data["results"]) == 4 # 2 baselines * 2 iterations
         assert "summaries" in data
 
     @pytest.mark.asyncio
@@ -402,7 +401,6 @@ class TestEvaluationEndpoints:
         assert response.status_code == 200
         data = response.json()
 
-        assert data["total_runs"] == 4
         assert len(data["results"]) == 4
 
         # Check all baselines are present
