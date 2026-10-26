@@ -193,7 +193,7 @@ class Settings(BaseSettings):
         default="openrouter",
         validation_alias=AliasChoices(
             "LLM_PROVIDER",
-            "OPENAI_PROVIDER,
+            "OPENAI_PROVIDER",
         ),
     )
 
