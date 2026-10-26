@@ -658,6 +658,10 @@ class TestToolValidation:
                 "name": "robot_get_state",
                 "description": "Get state",
             },
+             {
+                "name": "robot_list_objects",  # ← EKLEME
+                "description": "List objects",
+            },
         ]
 
         plan = await planner.plan(
@@ -668,7 +672,7 @@ class TestToolValidation:
 
         # Should only use available tools
         for step in plan.steps:
-            assert step.tool_name in {"robot_get_state"}
+            assert step.tool_name in {"robot_get_state", "robot_list_objects"}
 
 
 # ----------------------------------------------------------------------
