@@ -532,7 +532,7 @@ class BaselineExperiment:
         executor: RobotExecutor | None = None,  # ← YENİ
     ) -> None:
         self.instruction = instruction
-        self.baselines = baselines or list(AVAILABLE_BASELINES)
+        self.baselines = baselines if baselines is not None else list(AVAILABLE_BASELINES)
         self.iterations = iterations
         self.settings = settings or get_settings()
         self.memory_client = memory_client
