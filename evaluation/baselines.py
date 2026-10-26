@@ -350,9 +350,11 @@ class BaselineRunner:
         config: BaselineConfig,
         settings: Settings | None = None,
         memory_client: ChromaMemoryClient | None = None,
+        executor: RobotExecutor | None = None,  # ← YENİ
     ) -> None:
         self.config = config
         self.settings = settings or get_settings()
+        self._injected_executor = executor  # ← YENİ
 
         if memory_client is None and config.enable_memory:
             try:
@@ -384,6 +386,10 @@ class BaselineRunner:
         """
         Create executor configured for this baseline.
         """
+
+        if self._injected_executor is not None:
+            return self._injected_executor  # ← YENİ: Injected executor'ı kullan
+            
         planner = self._create_planner()
 
         return RobotExecutor(
@@ -523,6 +529,7 @@ class BaselineExperiment:
         seed: int | None = None,
         task_name: str | None = None,
         metadata: dict[str, Any] | None = None,
+        executor: RobotExecutor | None = None,  # ← YENİ
     ) -> None:
         self.instruction = instruction
         self.baselines = baselines or list(AVAILABLE_BASELINES)
@@ -532,6 +539,7 @@ class BaselineExperiment:
         self.seed = seed if seed is not None else random.randint(0, 2**31 - 1)
         self.task_name = task_name
         self.metadata = metadata or {}
+        self._injected_executor = executor  # ← YENİ
 
         self._validate_baselines()
 
@@ -539,6 +547,13 @@ class BaselineExperiment:
         """
         Validate that all baselines are known.
         """
+
+        if not self.baselines:
+            raise ValueError(
+                "At least one baseline must be provided. "
+                f"Available: {AVAILABLE_BASELINES}"
+            )  # ← YENİ: Boş baselines kontrolü
+            
         for baseline in self.baselines:
             if baseline not in AVAILABLE_BASELINES:
                 raise ValueError(
@@ -582,6 +597,7 @@ class BaselineExperiment:
                 config=config,
                 settings=self.settings,
                 memory_client=self.memory_client,
+                executor=self._injected_executor,  # ← YENİ: executor'ı runner'a geçir
             )
 
             for iteration in range(1, self.iterations + 1):
