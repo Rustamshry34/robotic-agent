@@ -520,9 +520,7 @@ class TestExecutePlanFailure:
 
         # Create slow tool invoker
         slow_invoker = AsyncMock(spec=ToolInvoker)
-        slow_invoker.call_tool = AsyncMock(
-            side_effect=lambda *args, **kwargs: asyncio.sleep(1)
-        )
+        slow_invoker.call_tool = AsyncMock(side_effect=TimeoutError("Tool timed out"))
         slow_invoker.list_tools.return_value = []
 
         plan = RobotPlan(
