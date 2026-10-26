@@ -198,7 +198,7 @@ class Settings(BaseSettings):
     )
 
     llm_model: str = Field(
-        default="google/gemma-4-26b-a4b-it:free",
+        default="google/gemma-4-31b-it:free",
         validation_alias=AliasChoices(
             "LLM_MODEL",
             "OPENAI_MODEL",
