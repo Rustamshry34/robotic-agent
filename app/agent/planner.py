@@ -24,7 +24,7 @@ from enum import StrEnum
 from typing import Any
 
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_openai import ChatOpenAI
+from app.agent.openrouter_client import ChatOpenRouter  <-- EKLE
 from pydantic import BaseModel, Field, field_validator
 
 from app.core.config import Settings, get_settings
@@ -399,7 +399,7 @@ class RobotPlanner:
 
         self.llm = llm or self._create_llm()
 
-    def _create_llm(self) -> ChatOpenAI | None:
+    def _create_llm(self) -> ChatOpenRouter  | None:
         """
         Create the LangChain chat model.
 
@@ -415,28 +415,23 @@ class RobotPlanner:
                 "LLM_API_KEY is not set. "
                 "Using deterministic heuristic planner."
             )
+        
             return None
+            
+        # base_url'i tam endpoint olarak ayarla
+        base_url = self.settings.llm_base_url or "https://openrouter.ai/api/v1"
+        if not base_url.endswith("/chat/completions"):
+            base_url = f"{base_url.rstrip('/')}/chat/completions"
 
-        kwargs: dict[str, Any] = {
-            "model": self.settings.llm_model,
-            "api_key": self.settings.llm_api_key,
-            "base_url": self.settings.llm_base_url or "https://openrouter.ai/api/v1",
-            "temperature": self.settings.llm_temperature,
-            "max_tokens": self.settings.llm_max_tokens,
-            "timeout": self.settings.llm_timeout_seconds,
-            "max_retries": self.settings.llm_max_retries,
-            # OpenRouter Reasoning desteği için extra_body ekliyoruz
-            "model_kwargs": {
-                "extra_body": {
-                    "reasoning": {"enabled": True}
-                }
-            },
-        }
-
-        if self.settings.llm_base_url:
-            kwargs["base_url"] = self.settings.llm_base_url
-
-        return ChatOpenAI(**kwargs)
+        return ChatOpenRouter(
+            api_key=self.settings.llm_api_key,
+            model=self.settings.llm_model,
+            base_url=base_url,
+            temperature=self.settings.llm_temperature,
+            max_tokens=self.settings.llm_max_tokens,
+            timeout=self.settings.llm_timeout_seconds,
+            reasoning_enabled=True,  # OpenRouter reasoning özelliğini aktif et
+        )
 
     # ------------------------------------------------------------------
     # Public API
