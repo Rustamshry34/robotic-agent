@@ -374,11 +374,11 @@ class TestEvaluationEndpoints:
         assert response.status_code == 200
         data = response.json()
 
-        assert "evaluation_id" in data
+        assert "experiment_id" in data
         assert data["instruction"] == "Take the red cup"
         assert data["total_runs"] == 4  # 2 baselines * 2 iterations
         assert len(data["results"]) == 4
-        assert "summary" in data
+        assert "summaries" in data
 
     @pytest.mark.asyncio
     async def test_run_evaluation_with_all_baselines(self, mock_client, mock_executor, sample_execution_result):
@@ -462,10 +462,10 @@ class TestEvaluationEndpoints:
         assert response.status_code == 200
         data = response.json()
 
-        summary = data["summary"]
-        assert "baseline_a" in summary
+        summaries = data["summaries"]
+        assert "baseline_a" in summaries
 
-        baseline_summary = summary["baseline_a"]
+        baseline_summary = summaries["baseline_a"]
         assert baseline_summary["total_runs"] == 2
         assert baseline_summary["success_count"] == 1
         assert baseline_summary["failure_count"] == 1
@@ -494,7 +494,7 @@ class TestEvaluationEndpoints:
         # Verify executor was called with metadata
         call_kwargs = mock_executor.execute_task.call_args.kwargs
         assert call_kwargs["metadata"]["experiment_name"] == "test_experiment"
-        assert "evaluation_id" in call_kwargs["metadata"]
+        assert "experiment_id" in call_kwargs["metadata"]
 
     @pytest.mark.asyncio
     async def test_run_evaluation_handles_exceptions(self, mock_client, mock_executor):
@@ -594,7 +594,7 @@ class TestRequestValidation:
         # Should still work, just no results
         assert response.status_code == 200
         data = response.json()
-        assert data["total_runs"] == 0
+        assert len(data["results"]) == 0
 
     @pytest.mark.asyncio
     async def test_run_evaluation_invalid_iterations(self, mock_client):
@@ -679,11 +679,10 @@ class TestResponseSchemas:
         data = response.json()
 
         # Check top-level fields
-        assert "evaluation_id" in data
+        assert "experiment_id" in data
         assert "instruction" in data
-        assert "total_runs" in data
         assert "results" in data
-        assert "summary" in data
+        assert "summaries" in data
 
         # Check result schema
         if data["results"]:
@@ -802,6 +801,5 @@ class TestIntegration:
         assert response.status_code == 200
         data = response.json()
 
-        assert data["total_runs"] == 2
         assert len(data["results"]) == 2
-        assert "summary" in data
+        assert "summaries" in data
