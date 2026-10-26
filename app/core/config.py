@@ -190,14 +190,15 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------
 
     llm_provider: str = Field(
-        default="openai",
+        default="openrouter",
         validation_alias=AliasChoices(
             "LLM_PROVIDER",
+            "OPENAI_PROVIDER,
         ),
     )
 
     llm_model: str = Field(
-        default="gpt-4o-mini",
+        default="google/gemma-4-26b-a4b-it:free",
         validation_alias=AliasChoices(
             "LLM_MODEL",
             "OPENAI_MODEL",
@@ -209,11 +210,12 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices(
             "LLM_API_KEY",
             "OPENAI_API_KEY",
+            "OPEN_ROUTER_API_KEY",
         ),
     )
 
     llm_base_url: str | None = Field(
-        default=None,
+        default="https://openrouter.ai/api/v1",
         validation_alias=AliasChoices(
             "LLM_BASE_URL",
             "OPENAI_API_BASE",
