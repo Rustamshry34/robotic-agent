@@ -540,7 +540,7 @@ class TestEvaluationEndpoints:
         error_result = data["results"][1]
         assert error_result["success"] is False
         assert error_result["status"] == "error"
-        assert error_result["error_code"] == "EVALUATION_EXCEPTION"
+        assert error_result["error_code"] == "BASELINE_EXCEPTION"
 
 
 # ----------------------------------------------------------------------
