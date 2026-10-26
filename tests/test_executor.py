@@ -107,6 +107,9 @@ def mock_db_session():
     session.rollback = AsyncMock()
     return session
 
+async def test_execute_empty_plan(self, executor, tool_invoker):
+
+
 
 @pytest.fixture
 def planner(test_settings, mock_memory_client):
