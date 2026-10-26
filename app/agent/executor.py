@@ -375,6 +375,8 @@ class RobotExecutor:
         """
         Execute an already-generated RobotPlan.
         """
+        active_planner = planner or self.planner  
+        
         started_at = utcnow()
 
         active_plan = plan
@@ -444,7 +446,7 @@ class RobotExecutor:
             failed_steps += 1
 
             can_recover = (
-                planner is not None
+                active_planner is not None
                 and active_plan.baseline in self.config.recovery_baselines
                 and recovery_attempts < self.config.max_recovery_attempts
             )
@@ -469,7 +471,7 @@ class RobotExecutor:
 
             if can_recover:
                 try:
-                    recovery_plan = await planner.create_recovery_plan(
+                    recovery_plan = await active_planner.create_recovery_plan(
                         task_instruction=task_instruction,
                         failed_plan=active_plan,
                         failed_step=step,
