@@ -995,14 +995,6 @@ class TestEdgeCases:
                 steps=[],  # This should fail validation
             )
 
-        # Plan validation should catch this
-        with pytest.raises(ValueError, match="Plan must contain at least one step"):
-            await executor.execute_plan(
-                plan=plan,
-                task_instruction="Test empty",
-                tool_invoker=tool_invoker,
-            )
-
     @pytest.mark.asyncio
     async def test_execute_plan_with_initial_state(self, executor, tool_invoker):
         """Test executing a plan with initial state provided."""
