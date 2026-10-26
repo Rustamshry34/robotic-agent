@@ -107,9 +107,6 @@ def mock_db_session():
     session.rollback = AsyncMock()
     return session
 
-async def test_execute_empty_plan(self, executor, tool_invoker):
-
-
 
 @pytest.fixture
 def planner(test_settings, mock_memory_client):
@@ -988,12 +985,15 @@ class TestEdgeCases:
     @pytest.mark.asyncio
     async def test_execute_empty_plan(self, executor, tool_invoker):
         """Test executing a plan with no steps."""
-        plan = RobotPlan(
-            task_name="empty_plan",
-            goal="Empty plan",
-            baseline="full_system",
-            steps=[],  # This should fail validation
-        )
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError, match="Plan must contain at least one step"):
+            RobotPlan(
+                task_name="empty_plan",
+                goal="Empty plan",
+                baseline="full_system",
+                steps=[],  # This should fail validation
+            )
 
         # Plan validation should catch this
         with pytest.raises(ValueError, match="Plan must contain at least one step"):
