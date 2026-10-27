@@ -4,14 +4,17 @@ Custom Chat Model for OpenRouter with native reasoning support.
 
 from __future__ import annotations
 
+import json
 import logging
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Type
 
 import httpx
 from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.outputs import ChatGeneration, ChatResult
-from pydantic import Field, SecretStr
+from langchain_core.runnables import Runnable, RunnableLambda, RunnableSequence
+from pydantic import BaseModel, Field, SecretStr
 
 logger = logging.getLogger(__name__)
 
@@ -77,7 +80,7 @@ class ChatOpenRouter(BaseChatModel):
         headers = {
             "Authorization": f"Bearer {self.api_key.get_secret_value()}",
             "Content-Type": "application/json",
-            "HTTP-Referer": "https://github.com/robotic-agent",  # OpenRouter recommends this
+            "HTTP-Referer": "https://github.com/robotic-agent",
             "X-Title": "Self-Verifying Robotic AI Agent",
         }
 
@@ -97,8 +100,6 @@ class ChatOpenRouter(BaseChatModel):
             additional_kwargs = {}
             if "reasoning_details" in choice:
                 additional_kwargs["reasoning_details"] = choice["reasoning_details"]
-                # İsteğe bağlı: Agent'ın kendi düşünce sürecini görmesini sağlamak için 
-                # içeriğin başına ekleyebiliriz. Şimdilik additional_kwargs'da tutuyoruz.
 
             generation_info = {
                 "finish_reason": data["choices"][0].get("finish_reason"),
@@ -122,7 +123,68 @@ class ChatOpenRouter(BaseChatModel):
             raise
 
     def _generate(self, *args, **kwargs):
-        # Sync fallback if ever needed, though we primarily use async
+        """Sync fallback if ever needed, though we primarily use async."""
         import asyncio
         return asyncio.run(self._agenerate(*args, **kwargs))
-      
+
+    def with_structured_output(
+        self,
+        schema: Type[BaseModel],
+        *,
+        method: str = "json_schema",
+        include_raw: bool = False,
+        **kwargs: Any,
+    ) -> Runnable:
+        """
+        Return a runnable that outputs structured data matching the schema.
+        
+        This method enables LangChain's structured output pattern by:
+        1. Injecting JSON schema into system message
+        2. Using JsonOutputParser to parse model response
+        3. Returning a RunnableSequence that can be chained with prompts
+        
+        Args:
+            schema: Pydantic model class to parse output into
+            method: Output method (currently only 'json_schema' supported)
+            include_raw: Whether to include raw model output
+            **kwargs: Additional arguments
+            
+        Returns:
+            Runnable that outputs validated Pydantic model instances
+        """
+        if method != "json_schema":
+            raise ValueError(f"Only 'json_schema' method is supported, got '{method}'")
+        
+        # Generate JSON schema from Pydantic model
+        json_schema = schema.model_json_schema()
+        
+        # Create system message with schema
+        system_message = SystemMessage(
+            content=f"""You must respond with a valid JSON object that strictly follows this schema:
+
+{json.dumps(json_schema, indent=2)}
+
+IMPORTANT RULES:
+1. Output ONLY the JSON object, no additional text, explanations, or markdown formatting
+2. All required fields must be present
+3. Field types must match the schema exactly
+4. Do not include ```json or ``` markers"""
+        )
+        
+        # Create output parser
+        parser = JsonOutputParser(pydantic_object=schema)
+        
+        # Create runnable that prepends system message
+        async def _prepend_system_prompt(messages: List[BaseMessage]) -> List[BaseMessage]:
+            return [system_message] + list(messages)
+        
+        # Build the chain: prepend system prompt -> call model -> parse output
+        chain = RunnableSequence(
+            first=RunnableLambda(_prepend_system_prompt),
+            last=RunnableSequence(
+                first=self,
+                last=parser,
+            ),
+        )
+        
+        return chain
