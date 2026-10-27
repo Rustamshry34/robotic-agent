@@ -253,7 +253,7 @@ jobs:
       LLM_PROVIDER: openrouter
       LLM_MODEL: liquid/lfm-2.5-2.6b:free
       LLM_TEMPERATURE: "0.0"
-      LLM_MAX_TOKENS: "4048"
+      LLM_MAX_TOKENS: "8048"
 
       MCP_ROBOT_BACKEND: simulated
       MCP_TRANSPORT: stdio
@@ -393,10 +393,12 @@ jobs:
       - name: Run container smoke test with environment variables
         env:
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
-          LLM_MODEL: ${{ vars.LLM_MODEL || 'gpt-4o-mini' }}
-          LLM_BASE_URL: ${{ secrets.LLM_BASE_URL || '' }}
+          LLM_MODEL: ${{ vars.LLM_MODEL || 'liquid/lfm-2.5-2.6b:free' }}
+          LLM_BASE_URL: ${{ secrets.LLM_BASE_URL || 'https://openrouter.ai/api/v1' }}
         run: |
-          IMAGE_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}"
+          IMAGE_NAME_LOWER=$(echo "${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
+          IMAGE_TAG="${{ env.REGISTRY }}/${IMAGE_NAME_LOWER}:sha-${{ github.sha }}"
+          
           echo "Running smoke test on image: $IMAGE_TAG"
 
           # Start container with comprehensive environment variables
@@ -409,9 +411,9 @@ jobs:
             -e LLM_API_KEY="$LLM_API_KEY" \
             -e LLM_MODEL="$LLM_MODEL" \
             -e LLM_BASE_URL="$LLM_BASE_URL" \
-            -e LLM_PROVIDER=openai \
+            -e LLM_PROVIDER=openrouter \
             -e LLM_TEMPERATURE=0.0 \
-            -e LLM_MAX_TOKENS=2048 \
+            -e LLM_MAX_TOKENS=8048 \
             -e DATABASE_URL=postgresql+asyncpg://test:test@localhost:5432/test \
             -e DATABASE_AUTO_CREATE_TABLES=false \
             -e CHROMA_MODE=ephemeral \
