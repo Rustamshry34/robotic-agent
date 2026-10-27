@@ -24,7 +24,7 @@ from enum import StrEnum
 from typing import Any
 
 from langchain_core.prompts import ChatPromptTemplate
-from app.agent.openrouter_client import ChatOpenRouter  <-- EKLE
+from app.agent.openrouter_client import ChatOpenRouter  # <-- EKLE
 from pydantic import BaseModel, Field, field_validator
 
 from app.core.config import Settings, get_settings
