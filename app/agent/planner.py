@@ -23,9 +23,9 @@ import re
 from enum import StrEnum
 from typing import Any
 
-from langchain_core.prompts import ChatPromptTemplate
-from app.agent.openrouter_client import ChatOpenRouter  # <-- EKLE
+
 from pydantic import BaseModel, Field, field_validator
+from app.agent.openrouter_client import OpenRouterClient
 
 from app.core.config import Settings, get_settings
 from memory.chroma_client import ChromaMemoryClient, get_chroma_memory
