@@ -12,6 +12,8 @@ The planner supports:
     - baseline_b: tools + memory
     - baseline_c: tools + verification
     - full_system: tools + memory + verification + recovery
+
+LLM integration uses a pure httpx-based OpenRouter client (no LangChain).
 """
 
 from __future__ import annotations
@@ -23,10 +25,9 @@ import re
 from enum import StrEnum
 from typing import Any
 
-
 from pydantic import BaseModel, Field, field_validator
-from app.agent.openrouter_client import OpenRouterClient
 
+from app.agent.openrouter_client import OpenRouterClient
 from app.core.config import Settings, get_settings
 from memory.chroma_client import ChromaMemoryClient, get_chroma_memory
 
@@ -44,6 +45,7 @@ __all__ = [
     "RobotPlanner",
     "create_planner",
 ]
+
 
 # ----------------------------------------------------------------------
 # Planner schemas
@@ -89,8 +91,7 @@ class RobotPlan(BaseModel):
     Structured plan produced by the planner.
 
     This plan can be consumed by:
-    - DeepAgents executor
-    - LangChain tool executor
+    - RobotExecutor
     - evaluation pipeline
     - PostgreSQL logging layer
     """
@@ -203,7 +204,7 @@ Rules:
 5. If the current state is insufficient, include an observation step first.
 6. Do not invent tools, object IDs, or capabilities.
 7. Keep the plan under the maximum allowed step count.
-8. Return a valid structured plan.
+8. Return a valid structured plan as JSON.
 """.strip()
 
 
@@ -235,14 +236,6 @@ Constraints:
 - Prefer verification after critical manipulation actions.
 - If an error occurred, produce a recovery plan that fixes the failure.
 """.strip()
-
-
-PLANNER_PROMPT = ChatPromptTemplate.from_messages(
-    [
-        ("system", SYSTEM_PROMPT),
-        ("human", HUMAN_PROMPT_TEMPLATE),
-    ]
-)
 
 
 # ----------------------------------------------------------------------
@@ -371,6 +364,7 @@ class RobotPlanner:
     """
     LLM-backed structured planner for robot tasks.
 
+    Uses a pure httpx-based OpenRouter client (no LangChain).
     If no LLM API key is configured and environment is not production,
     it falls back to a deterministic heuristic planner for local testing.
     """
@@ -380,7 +374,7 @@ class RobotPlanner:
         settings: Settings | None = None,
         memory_client: ChromaMemoryClient | None = None,
         config: PlannerConfig | None = None,
-        llm: Any | None = None,
+        llm_client: OpenRouterClient | None = None,
     ) -> None:
         self.settings = settings or get_settings()
         self.config = config or PlannerConfig.from_settings(self.settings)
@@ -397,11 +391,11 @@ class RobotPlanner:
                 )
                 self.memory_client = None
 
-        self.llm = llm or self._create_llm()
+        self.llm_client = llm_client or self._create_llm_client()
 
-    def _create_llm(self) -> ChatOpenRouter  | None:
+    def _create_llm_client(self) -> OpenRouterClient | None:
         """
-        Create the LangChain chat model.
+        Create the pure OpenRouter client.
 
         Returns None if no API key is available in non-production mode.
         """
@@ -415,22 +409,20 @@ class RobotPlanner:
                 "LLM_API_KEY is not set. "
                 "Using deterministic heuristic planner."
             )
-        
             return None
-            
-        # base_url'i tam endpoint olarak ayarla
+
         base_url = self.settings.llm_base_url or "https://openrouter.ai/api/v1"
         if not base_url.endswith("/chat/completions"):
             base_url = f"{base_url.rstrip('/')}/chat/completions"
 
-        return ChatOpenRouter(
-            api_key=self.settings.llm_api_key,
+        return OpenRouterClient(
+            api_key=self.settings.llm_api_key.get_secret_value(),
             model=self.settings.llm_model,
             base_url=base_url,
             temperature=self.settings.llm_temperature,
             max_tokens=self.settings.llm_max_tokens,
             timeout=self.settings.llm_timeout_seconds,
-            reasoning_enabled=True,  # OpenRouter reasoning özelliğini aktif et
+            reasoning_enabled=True,
         )
 
     # ------------------------------------------------------------------
@@ -459,7 +451,7 @@ class RobotPlanner:
                 current_state=current_state,
             )
 
-        if self.llm is None:
+        if self.llm_client is None:
             plan = self._heuristic_plan(
                 task_instruction=task_instruction,
                 task_name=task_name,
@@ -527,7 +519,7 @@ class RobotPlanner:
                 current_state=current_state,
             )
 
-        if self.llm is None:
+        if self.llm_client is None:
             plan = self._heuristic_recovery_plan(
                 failed_plan=failed_plan,
                 failed_step=failed_step,
@@ -574,7 +566,7 @@ class RobotPlanner:
         return plan
 
     # ------------------------------------------------------------------
-    # LLM planning
+    # LLM planning (pure OpenRouter)
     # ------------------------------------------------------------------
 
     async def _llm_plan(
@@ -586,22 +578,28 @@ class RobotPlanner:
         available_tools: list[dict[str, Any]],
         memories: list[dict[str, Any]],
     ) -> RobotPlan:
-        structured_llm = self.llm.with_structured_output(RobotPlan)
+        """
+        Generate a plan using the OpenRouter LLM.
+        """
+        if self.llm_client is None:
+            raise RuntimeError("LLM client is not available.")
 
-        chain = PLANNER_PROMPT | structured_llm
+        prompt = HUMAN_PROMPT_TEMPLATE.format(
+            planning_mode=planning_mode,
+            task_name=task_name,
+            task_instruction=task_instruction,
+            current_state=_to_json(current_state),
+            available_tools=_to_json(available_tools),
+            relevant_memories=_format_memories(memories),
+            error_context="None",
+            max_plan_steps=self.config.max_plan_steps,
+            enable_verification=self.config.enable_verification,
+        )
 
-        result = await chain.ainvoke(
-            {
-                "planning_mode": planning_mode,
-                "task_name": task_name,
-                "task_instruction": task_instruction,
-                "current_state": _to_json(current_state),
-                "available_tools": _to_json(available_tools),
-                "relevant_memories": _format_memories(memories),
-                "error_context": "None",
-                "max_plan_steps": self.config.max_plan_steps,
-                "enable_verification": self.config.enable_verification,
-            }
+        result = await self.llm_client.generate_structured(
+            prompt=prompt,
+            schema=RobotPlan,
+            system_instruction=SYSTEM_PROMPT,
         )
 
         if not isinstance(result, RobotPlan):
@@ -627,6 +625,12 @@ class RobotPlanner:
         error_code: str,
         error_message: str | None,
     ) -> RobotPlan:
+        """
+        Generate a recovery plan using the OpenRouter LLM.
+        """
+        if self.llm_client is None:
+            raise RuntimeError("LLM client is not available.")
+
         error_context = {
             "failed_step_id": failed_step.step_id,
             "failed_tool": failed_step.tool_name,
@@ -637,22 +641,22 @@ class RobotPlanner:
             "previous_plan": failed_plan.model_dump(),
         }
 
-        structured_llm = self.llm.with_structured_output(RobotPlan)
+        prompt = HUMAN_PROMPT_TEMPLATE.format(
+            planning_mode="recovery_plan",
+            task_name=task_name,
+            task_instruction=task_instruction,
+            current_state=_to_json(current_state),
+            available_tools=_to_json(available_tools),
+            relevant_memories=_format_memories(memories),
+            error_context=_to_json(error_context),
+            max_plan_steps=self.config.max_plan_steps,
+            enable_verification=self.config.enable_verification,
+        )
 
-        chain = PLANNER_PROMPT | structured_llm
-
-        result = await chain.ainvoke(
-            {
-                "planning_mode": "recovery_plan",
-                "task_name": task_name,
-                "task_instruction": task_instruction,
-                "current_state": _to_json(current_state),
-                "available_tools": _to_json(available_tools),
-                "relevant_memories": _format_memories(memories),
-                "error_context": _to_json(error_context),
-                "max_plan_steps": self.config.max_plan_steps,
-                "enable_verification": self.config.enable_verification,
-            }
+        result = await self.llm_client.generate_structured(
+            prompt=prompt,
+            schema=RobotPlan,
+            system_instruction=SYSTEM_PROMPT,
         )
 
         if not isinstance(result, RobotPlan):
@@ -1038,6 +1042,7 @@ def create_planner(
     settings: Settings | None = None,
     memory_client: ChromaMemoryClient | None = None,
     baseline: str | None = None,
+    llm_client: OpenRouterClient | None = None,
 ) -> RobotPlanner:
     """
     Create a RobotPlanner.
@@ -1055,6 +1060,9 @@ def create_planner(
             - baseline_b
             - baseline_c
             - full_system
+
+        llm_client:
+            Optional OpenRouter client. Useful for tests.
     """
     settings = settings or get_settings()
 
@@ -1067,4 +1075,6 @@ def create_planner(
         settings=settings,
         memory_client=memory_client,
         config=config,
+        llm_client=llm_client,
     )
+    
