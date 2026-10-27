@@ -73,7 +73,7 @@ jobs:
 
       LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
       LLM_PROVIDER: openrouter
-      LLM_MODEL: liquid/lfm-2.5-2.6b:free
+      LLM_MODEL: recursive/flint-v1.0:free
       LLM_BASE_URL: https://openrouter.ai/api/v1
       LLM_TEMPERATURE: "0.0"
       LLM_MAX_TOKENS: "8048"
@@ -251,7 +251,7 @@ jobs:
 
       LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
       LLM_PROVIDER: openrouter
-      LLM_MODEL: liquid/lfm-2.5-2.6b:free
+      LLM_MODEL: recursive/flint-v1.0:free
       LLM_TEMPERATURE: "0.0"
       LLM_MAX_TOKENS: "8048"
 
@@ -393,7 +393,7 @@ jobs:
       - name: Run container smoke test with environment variables
         env:
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
-          LLM_MODEL: ${{ vars.LLM_MODEL || 'liquid/lfm-2.5-2.6b:free' }}
+          LLM_MODEL: ${{ vars.LLM_MODEL || 'recursive/flint-v1.0:free' }}
           LLM_BASE_URL: ${{ secrets.LLM_BASE_URL || 'https://openrouter.ai/api/v1' }}
         run: |
           IMAGE_NAME_LOWER=$(echo "${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
