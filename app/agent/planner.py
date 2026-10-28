@@ -26,8 +26,7 @@ from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
-
-from app.agent.local_llm_client import LocalLLMClient
+from app.agent.local_llm_client import TransformersLLMClient
 from app.core.config import Settings, get_settings
 from memory.chroma_client import ChromaMemoryClient, get_chroma_memory
 
@@ -374,7 +373,7 @@ class RobotPlanner:
         settings: Settings | None = None,
         memory_client: ChromaMemoryClient | None = None,
         config: PlannerConfig | None = None,
-        llm_client: OpenRouterClient | None = None,
+        llm_client: TransformersLLMClient | None = None,
     ) -> None:
         self.settings = settings or get_settings()
         self.config = config or PlannerConfig.from_settings(self.settings)
@@ -393,18 +392,15 @@ class RobotPlanner:
 
         self.llm_client = llm_client or self._create_llm_client()
 
-    def _create_llm_client(self) -> LocalLLMClient | None:
+    def _create_llm_client(self) ->  TransformersLLMClient | None:
         """Create the local vLLM client."""
         # Lokal modelde API key zorunlu değildir, 'EMPTY' geçerlidir.
         
-        base_url = self.settings.llm_base_url
-        if not base_url.endswith("/v1"):
-            base_url = f"{base_url.rstrip('/')}/v1"
-
-        return LocalLLMClient(
-            api_key=self.settings.llm_api_key or "EMPTY",
-            model=self.settings.llm_model,
-            base_url=base_url,
+       
+        return TransformersLLMClient(
+            model_name=self.settings.llm_model,
+            device=self.settings.llm_device,
+            dtype=self.settings.llm_dtype,
             temperature=self.settings.llm_temperature,
             max_tokens=self.settings.llm_max_tokens,
             timeout=self.settings.llm_timeout_seconds,
@@ -1027,7 +1023,7 @@ def create_planner(
     settings: Settings | None = None,
     memory_client: ChromaMemoryClient | None = None,
     baseline: str | None = None,
-    llm_client: OpenRouterClient | None = None,
+    llm_client: TransformersLLMClient | None = None,
 ) -> RobotPlanner:
     """
     Create a RobotPlanner.
