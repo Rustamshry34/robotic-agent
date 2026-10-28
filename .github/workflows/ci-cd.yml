@@ -244,8 +244,8 @@ jobs:
       LLM_DEVICE: cpu
       LLM_DTYPE: float32
       LLM_TEMPERATURE: "0.0"
-      LLM_MAX_TOKENS: "8024"
-      LLM_TIMEOUT_SECONDS: "120"
+      LLM_MAX_TOKENS: "8048"
+      LLM_TIMEOUT_SECONDS: "240"
 
       MCP_ROBOT_BACKEND: simulated
       MCP_TRANSPORT: stdio
