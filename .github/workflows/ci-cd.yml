@@ -120,7 +120,6 @@ jobs:
             -v \
             --tb=short \
             --asyncio-mode=auto \
-            --timeout=120 \
             --cov=app \
             --cov=mcp_server \
             --cov=memory \
@@ -245,7 +244,6 @@ jobs:
       LLM_DTYPE: float32
       LLM_TEMPERATURE: "0.0"
       LLM_MAX_TOKENS: "8048"
-      LLM_TIMEOUT_SECONDS: "240"
 
       MCP_ROBOT_BACKEND: simulated
       MCP_TRANSPORT: stdio
