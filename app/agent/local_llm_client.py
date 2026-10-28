@@ -202,6 +202,7 @@ CRITICAL RULES:
                     full_system_prompt,
                     prompt,
                 ),
+                timeout=360,
             )
 
             # Clean markdown code blocks if present
