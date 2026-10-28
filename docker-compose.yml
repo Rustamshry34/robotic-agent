@@ -72,7 +72,6 @@ services:
       - "8000:8000"
 
     environment:
-      # Application
       APP_NAME: "Robotic AI Agent API"
       ENVIRONMENT: ${ENVIRONMENT:-development}
       DEBUG: ${DEBUG:-false}
@@ -82,50 +81,35 @@ services:
       # Database
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-robot_user}:${POSTGRES_PASSWORD:-robot_password}@postgres:5432/${POSTGRES_DB:-robot_agent}
       DATABASE_AUTO_CREATE_TABLES: ${DATABASE_AUTO_CREATE_TABLES:-true}
-      DATABASE_ECHO: ${DATABASE_ECHO:-false}
-      DATABASE_POOL_SIZE: ${DATABASE_POOL_SIZE:-5}
-      DATABASE_MAX_OVERFLOW: ${DATABASE_MAX_OVERFLOW:-10}
 
-      # LLM
-      LLM_PROVIDER: ${LLM_PROVIDER:-openai}
-      LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
-      LLM_API_KEY: ${LLM_API_KEY}
-      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      # LLM (Local Transformers - artık base_url ve api_key gerekmez)
+      LLM_PROVIDER: transformers
+      LLM_MODEL: ${LLM_MODEL:-LiquidAI/LFM2-230M}
+      LLM_DEVICE: ${LLM_DEVICE:-cpu}
+      LLM_DTYPE: ${LLM_DTYPE:-float32}
       LLM_TEMPERATURE: ${LLM_TEMPERATURE:-0.0}
       LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-2048}
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-120}
 
       # MCP
       MCP_ROBOT_BACKEND: ${MCP_ROBOT_BACKEND:-simulated}
-      MCP_TRANSPORT: ${MCP_TRANSPORT:-stdio}
 
       # ChromaDB
       CHROMA_MODE: http
       CHROMA_HOST: chromadb
       CHROMA_PORT: "8000"
       CHROMA_COLLECTION: ${CHROMA_COLLECTION:-robot_experiences}
-      CHROMA_DISTANCE: ${CHROMA_DISTANCE:-cosine}
 
       # Agent behavior
       AGENT_MAX_PLAN_STEPS: ${AGENT_MAX_PLAN_STEPS:-12}
-      AGENT_MAX_ACTION_RETRIES: ${AGENT_MAX_ACTION_RETRIES:-3}
       AGENT_ENABLE_VERIFICATION: ${AGENT_ENABLE_VERIFICATION:-true}
       AGENT_ENABLE_MEMORY: ${AGENT_ENABLE_MEMORY:-true}
-
-      # Evaluation
-      EVALUATION_BASELINE: ${EVALUATION_BASELINE:-full_system}
 
     depends_on:
       postgres:
         condition: service_healthy
       chromadb:
         condition: service_healthy
-
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
-      interval: 15s
-      timeout: 10s
-      retries: 5
-      start_period: 20s
 
     networks:
       - agent_network
