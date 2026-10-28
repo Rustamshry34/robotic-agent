@@ -11,7 +11,7 @@ import asyncio
 import json
 import logging
 from typing import Any, Type
-timeout
+
 from pydantic import BaseModel, ValidationError
 
 logger = logging.getLogger(__name__)
@@ -213,9 +213,6 @@ CRITICAL RULES:
             # Validate against Pydantic schema
             return schema.model_validate(parsed_data)
 
-        except asyncio.TimeoutError:
-            logger.error("Local LLM generation timed out after %s seconds", self.timeout)
-            raise RuntimeError(f"Local LLM timeout after {self.timeout}s")
         except json.JSONDecodeError as e:
             logger.error("Failed to parse JSON from local LLM. Raw output: %s", content[:500])
             raise RuntimeError(f"Invalid JSON from local LLM: {e}")
