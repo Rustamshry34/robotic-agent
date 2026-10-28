@@ -30,19 +30,17 @@ class TransformersLLMClient:
 
     def __init__(
         self,
-        model_name: str = "LiquidAI/LFM2-230M",
+        model_name: str = "LiquidAI/LFM2.5-230M",
         device: str = "cpu",
         dtype: str = "float32",
         temperature: float = 0.0,
         max_tokens: int = 8048,
-        timeout: int = 240,
     ):
         self.model_name = model_name
         self.device = device
         self.dtype = dtype
         self.temperature = temperature
         self.max_tokens = max_tokens
-        self.timeout = timeout
 
         # Lazy-loaded on first call
         self._model = None
