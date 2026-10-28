@@ -202,7 +202,6 @@ CRITICAL RULES:
                     full_system_prompt,
                     prompt,
                 ),
-                timeout=self.timeout,
             )
 
             # Clean markdown code blocks if present
