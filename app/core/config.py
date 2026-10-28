@@ -195,7 +195,7 @@ class Settings(BaseSettings):
     )
 
     llm_model: str = Field(
-        default="LiquidAI/LFM2-230M",
+        default="LiquidAI/LFM2.5-230M",
         validation_alias=AliasChoices("LLM_MODEL"),
     )
 
@@ -217,7 +217,7 @@ class Settings(BaseSettings):
     )
 
     llm_max_tokens: int = Field(
-        default=2048,
+        default=8048,
         gt=0,
         validation_alias=AliasChoices("LLM_MAX_TOKENS"),
     )
