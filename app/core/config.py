@@ -223,7 +223,7 @@ class Settings(BaseSettings):
     )
 
     llm_timeout_seconds: int = Field(
-        default=120,  # Lokal çıkarım yavaş olabilir, timeout'u artırdık
+        default=240,  # Lokal çıkarım yavaş olabilir, timeout'u artırdık
         gt=0,
         validation_alias=AliasChoices("LLM_TIMEOUT_SECONDS"),
     )
