@@ -27,7 +27,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
 
-from app.agent.openrouter_client import OpenRouterClient
+from app.agent.local_llm_client import LocalLLMClient
 from app.core.config import Settings, get_settings
 from memory.chroma_client import ChromaMemoryClient, get_chroma_memory
 
@@ -393,36 +393,21 @@ class RobotPlanner:
 
         self.llm_client = llm_client or self._create_llm_client()
 
-    def _create_llm_client(self) -> OpenRouterClient | None:
-        """
-        Create the pure OpenRouter client.
+    def _create_llm_client(self) -> LocalLLMClient | None:
+        """Create the local vLLM client."""
+        # Lokal modelde API key zorunlu değildir, 'EMPTY' geçerlidir.
+        
+        base_url = self.settings.llm_base_url
+        if not base_url.endswith("/v1"):
+            base_url = f"{base_url.rstrip('/')}/v1"
 
-        Returns None if no API key is available in non-production mode.
-        """
-        if not self.settings.llm_api_key:
-            if self.settings.is_production:
-                raise RuntimeError(
-                    "LLM_API_KEY is required in production."
-                )
-
-            logger.warning(
-                "LLM_API_KEY is not set. "
-                "Using deterministic heuristic planner."
-            )
-            return None
-
-        base_url = self.settings.llm_base_url or "https://openrouter.ai/api/v1"
-        if not base_url.endswith("/chat/completions"):
-            base_url = f"{base_url.rstrip('/')}/chat/completions"
-
-        return OpenRouterClient(
-            api_key=self.settings.llm_api_key.get_secret_value(),
+        return LocalLLMClient(
+            api_key=self.settings.llm_api_key or "EMPTY",
             model=self.settings.llm_model,
             base_url=base_url,
             temperature=self.settings.llm_temperature,
             max_tokens=self.settings.llm_max_tokens,
             timeout=self.settings.llm_timeout_seconds,
-            reasoning_enabled=True,
         )
 
     # ------------------------------------------------------------------
