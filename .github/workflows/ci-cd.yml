@@ -71,10 +71,8 @@ jobs:
       DATABASE_POOL_SIZE: "3"
       DATABASE_MAX_OVERFLOW: "5"
 
-      LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
-      LLM_PROVIDER: openai
-      LLM_MODEL: qwen
-      LLM_BASE_URL: https://api.a2agent.me/v1
+      LLM_PROVIDER: transformers
+      LLM_MODEL: LiquidAI/LFM2-230M
       LLM_TEMPERATURE: "0.0"
       LLM_MAX_TOKENS: "8048"
 
@@ -107,14 +105,6 @@ jobs:
           pip install --upgrade pip
           pip install -r requirements.txt
           pip install pytest pytest-asyncio pytest-cov pytest-timeout httpx
-
-      - name: Verify LLM_API_KEY is available
-        run: |
-          if [ -z "$LLM_API_KEY" ]; then
-            echo "::warning::LLM_API_KEY is not set. Tests will use heuristic planner."
-          else
-            echo "LLM_API_KEY is configured."
-          fi
 
       - name: Wait for PostgreSQL
         run: |
@@ -247,13 +237,15 @@ jobs:
     env:
       ENVIRONMENT: test
       LOG_LEVEL: INFO
-      AGENT_VERSION: "0.1.0-eval"
 
-      LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
-      LLM_PROVIDER: openai
-      LLM_MODEL: qwen
+      # LLM (Local Transformers - API key gerekmez)
+      LLM_PROVIDER: transformers
+      LLM_MODEL: LiquidAI/LFM2-230M
+      LLM_DEVICE: cpu
+      LLM_DTYPE: float32
       LLM_TEMPERATURE: "0.0"
-      LLM_MAX_TOKENS: "8048"
+      LLM_MAX_TOKENS: "8024"
+      LLM_TIMEOUT_SECONDS: "120"
 
       MCP_ROBOT_BACKEND: simulated
       MCP_TRANSPORT: stdio
@@ -283,14 +275,6 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install -r requirements.txt
-
-      - name: Verify LLM_API_KEY is available
-        run: |
-          if [ -z "$LLM_API_KEY" ]; then
-            echo "::warning::LLM_API_KEY is not set. Evaluation will use heuristic planner."
-          else
-            echo "LLM_API_KEY is configured."
-          fi
 
       - name: Run baseline evaluation experiment
         run: |
@@ -392,9 +376,7 @@ jobs:
 
       - name: Run container smoke test with environment variables
         env:
-          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
-          LLM_MODEL: ${{ vars.LLM_MODEL || 'qwen' }}
-          LLM_BASE_URL: ${{ secrets.LLM_BASE_URL || 'https://api.a2agent.me/v1' }}
+          LLM_MODEL: ${{ vars.LLM_MODEL || 'LiquidAI/LFM2.5-230M' }}
         run: |
           IMAGE_NAME_LOWER=$(echo "${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
           IMAGE_TAG="${{ env.REGISTRY }}/${IMAGE_NAME_LOWER}:sha-${{ github.sha }}"
@@ -408,10 +390,8 @@ jobs:
             -e ENVIRONMENT=production \
             -e LOG_LEVEL=INFO \
             -e AGENT_VERSION="0.1.0-smoke" \
-            -e LLM_API_KEY="$LLM_API_KEY" \
             -e LLM_MODEL="$LLM_MODEL" \
-            -e LLM_BASE_URL="$LLM_BASE_URL" \
-            -e LLM_PROVIDER=openrouter \
+            -e LLM_PROVIDER=transformers \
             -e LLM_TEMPERATURE=0.0 \
             -e LLM_MAX_TOKENS=8048 \
             -e DATABASE_URL=postgresql+asyncpg://test:test@localhost:5432/test \
