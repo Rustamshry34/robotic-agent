@@ -186,27 +186,27 @@ class Settings(BaseSettings):
     )
 
     # ------------------------------------------------------------------
-    # LLM (Local vLLM Configuration)
+    # LLM (Local Transformers Configuration)
     # ------------------------------------------------------------------
 
     llm_provider: str = Field(
-        default="vllm",
+        default="transformers",
         validation_alias=AliasChoices("LLM_PROVIDER"),
     )
 
     llm_model: str = Field(
-        default="LiquidAI/LFM2.5-230M", # veya kullanmak istediğiniz lokal model
+        default="LiquidAI/LFM2-230M",
         validation_alias=AliasChoices("LLM_MODEL"),
     )
 
-    llm_api_key: str | None = Field(
-        default="EMPTY", # vLLM varsayılanı
-        validation_alias=AliasChoices("LLM_API_KEY"),
+    llm_device: str = Field(
+        default="cpu",  # "cpu" veya "cuda" (GPU varsa)
+        validation_alias=AliasChoices("LLM_DEVICE"),
     )
 
-    llm_base_url: str = Field(
-        default="http://localhost:8000/v1", # Docker'da http://vllm:8000/v1 olacak
-        validation_alias=AliasChoices("LLM_BASE_URL"),
+    llm_dtype: str = Field(
+        default="float32",  # "float32", "float16", "bfloat16"
+        validation_alias=AliasChoices("LLM_DTYPE"),
     )
 
     llm_temperature: float = Field(
@@ -217,13 +217,13 @@ class Settings(BaseSettings):
     )
 
     llm_max_tokens: int = Field(
-        default=8048,
+        default=2048,
         gt=0,
         validation_alias=AliasChoices("LLM_MAX_TOKENS"),
     )
 
     llm_timeout_seconds: int = Field(
-        default=60,
+        default=120,  # Lokal çıkarım yavaş olabilir, timeout'u artırdık
         gt=0,
         validation_alias=AliasChoices("LLM_TIMEOUT_SECONDS"),
     )
@@ -231,11 +231,9 @@ class Settings(BaseSettings):
     llm_max_retries: int = Field(
         default=2,
         ge=0,
-        validation_alias=AliasChoices(
-            "LLM_MAX_RETRIES",
-        ),
+        validation_alias=AliasChoices("LLM_MAX_RETRIES"),
     )
-
+  
     # ------------------------------------------------------------------
     # PostgreSQL
     # ------------------------------------------------------------------
