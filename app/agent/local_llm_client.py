@@ -34,8 +34,8 @@ class TransformersLLMClient:
         device: str = "cpu",
         dtype: str = "float32",
         temperature: float = 0.0,
-        max_tokens: int = 2048,
-        timeout: int = 120,
+        max_tokens: int = 8048,
+        timeout: int = 240,
     ):
         self.model_name = model_name
         self.device = device
