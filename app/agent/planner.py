@@ -403,7 +403,6 @@ class RobotPlanner:
             dtype=self.settings.llm_dtype,
             temperature=self.settings.llm_temperature,
             max_tokens=self.settings.llm_max_tokens,
-            timeout=self.settings.llm_timeout_seconds,
         )
 
     # ------------------------------------------------------------------
