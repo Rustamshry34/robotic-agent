@@ -15,7 +15,7 @@ The planner supports:
 
 LLM integration uses a pure httpx-based OpenRouter client (no LangChain).
 """
-
+timeout
 from __future__ import annotations
 
 import asyncio
