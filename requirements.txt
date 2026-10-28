@@ -2,22 +2,19 @@
 fastapi>=0.115.0
 uvicorn[standard]>=0.30.0
 pydantic-settings>=2.5.2
-python-dotenv>=1.0.1
+
+# --- LLM İstemcisi (vLLM OpenAI Compatible API için) ---
+openai>=1.12.0
 
 # --- Robot Yetenekleri (MCP) ---
 mcp>=1.2.0
 
-# --- Veritabanı ve Hafıza (PostgreSQL & ChromaDB) ---
+# --- Veritabanı ve Hafıza ---
 sqlalchemy[asyncio]>=2.0.36
 asyncpg>=0.30.0
 chromadb>=0.5.20
 
-# --- Değerlendirme ve Metrikler (Baseline & Ablasyon Deneyleri) ---
-pandas>=2.2.3
-numpy>=1.26.4
-scikit-learn>=1.5.2
-
-# --- Test ve CI/CD (GitHub Actions için) ---
+# --- Test ve CI/CD ---
 pytest>=8.3.4
 pytest-asyncio>=0.24.0
 pytest-cov>=6.0.0
