@@ -222,12 +222,6 @@ class Settings(BaseSettings):
         validation_alias=AliasChoices("LLM_MAX_TOKENS"),
     )
 
-    llm_timeout_seconds: int = Field(
-        default=240,  # Lokal çıkarım yavaş olabilir, timeout'u artırdık
-        gt=0,
-        validation_alias=AliasChoices("LLM_TIMEOUT_SECONDS"),
-    )
-
     llm_max_retries: int = Field(
         default=2,
         ge=0,
