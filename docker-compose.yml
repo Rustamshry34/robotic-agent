@@ -166,3 +166,44 @@ volumes:
 networks:
   agent_network:
     driver: bridge
+
+# ------------------------------------------------------------------
+# vLLM Local Inference Server
+# ------------------------------------------------------------------
+vllm:
+  image: vllm/vllm-openai:latest
+  container_name: robotic_agent_vllm
+  restart: unless-stopped
+    
+  # GPU desteği için gereklidir (NVIDIA GPU şart)
+  deploy:
+    resources:
+      reservations:
+        devices:
+          - driver: nvidia
+            count: 1
+            capabilities: [cpu]
+
+  ports:
+    - "8001:8000"
+
+  environment:
+    - HUGGING_FACE_HUB_TOKEN=${HF_TOKEN:-} # Eğer model private ise
+    - VLLM_PORT=8000
+
+  command: >
+    --model LiquidAI/LFM2.5-230M
+    --dtype auto
+    --api-key EMPTY
+    --max-model-len 8096
+    --gpu-memory-utilization 0.85
+
+  healthcheck:
+    test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+    interval: 30s
+    timeout: 10s
+    retries: 5
+    start_period: 60s # Modelin yüklenmesi zaman alabilir
+
+  networks:
+    - agent_network
