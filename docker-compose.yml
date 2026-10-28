@@ -84,12 +84,12 @@ services:
 
       # LLM (Local Transformers - artık base_url ve api_key gerekmez)
       LLM_PROVIDER: transformers
-      LLM_MODEL: ${LLM_MODEL:-LiquidAI/LFM2-230M}
+      LLM_MODEL: ${LLM_MODEL:-LiquidAI/LFM2.5-230M}
       LLM_DEVICE: ${LLM_DEVICE:-cpu}
       LLM_DTYPE: ${LLM_DTYPE:-float32}
       LLM_TEMPERATURE: ${LLM_TEMPERATURE:-0.0}
-      LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-2048}
-      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-120}
+      LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-8048}
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-240}
 
       # MCP
       MCP_ROBOT_BACKEND: ${MCP_ROBOT_BACKEND:-simulated}
