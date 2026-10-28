@@ -186,65 +186,46 @@ class Settings(BaseSettings):
     )
 
     # ------------------------------------------------------------------
-    # LLM
+    # LLM (Local vLLM Configuration)
     # ------------------------------------------------------------------
 
     llm_provider: str = Field(
-        default="openrouter",
-        validation_alias=AliasChoices(
-            "LLM_PROVIDER",
-            "OPENAI_PROVIDER",
-        ),
+        default="vllm",
+        validation_alias=AliasChoices("LLM_PROVIDER"),
     )
 
     llm_model: str = Field(
-        default="google/gemma-4-31b-it:free",
-        validation_alias=AliasChoices(
-            "LLM_MODEL",
-            "OPENAI_MODEL",
-        ),
+        default="LiquidAI/LFM2.5-230M", # veya kullanmak istediğiniz lokal model
+        validation_alias=AliasChoices("LLM_MODEL"),
     )
 
-    llm_api_key: SecretStr | None = Field(
-        default=None,
-        validation_alias=AliasChoices(
-            "LLM_API_KEY",
-            "OPENAI_API_KEY",
-            "OPEN_ROUTER_API_KEY",
-        ),
+    llm_api_key: str | None = Field(
+        default="EMPTY", # vLLM varsayılanı
+        validation_alias=AliasChoices("LLM_API_KEY"),
     )
 
-    llm_base_url: str | None = Field(
-        default="https://openrouter.ai/api/v1",
-        validation_alias=AliasChoices(
-            "LLM_BASE_URL",
-            "OPENAI_API_BASE",
-        ),
+    llm_base_url: str = Field(
+        default="http://localhost:8000/v1", # Docker'da http://vllm:8000/v1 olacak
+        validation_alias=AliasChoices("LLM_BASE_URL"),
     )
 
     llm_temperature: float = Field(
         default=0.0,
         ge=0.0,
         le=2.0,
-        validation_alias=AliasChoices(
-            "LLM_TEMPERATURE",
-        ),
+        validation_alias=AliasChoices("LLM_TEMPERATURE"),
     )
 
     llm_max_tokens: int = Field(
-        default=2048,
+        default=8048,
         gt=0,
-        validation_alias=AliasChoices(
-            "LLM_MAX_TOKENS",
-        ),
+        validation_alias=AliasChoices("LLM_MAX_TOKENS"),
     )
 
     llm_timeout_seconds: int = Field(
         default=60,
         gt=0,
-        validation_alias=AliasChoices(
-            "LLM_TIMEOUT_SECONDS",
-        ),
+        validation_alias=AliasChoices("LLM_TIMEOUT_SECONDS"),
     )
 
     llm_max_retries: int = Field(
