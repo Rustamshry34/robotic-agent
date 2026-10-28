@@ -72,7 +72,7 @@ jobs:
       DATABASE_MAX_OVERFLOW: "5"
 
       LLM_PROVIDER: transformers
-      LLM_MODEL: LiquidAI/LFM2-230M
+      LLM_MODEL: LiquidAI/LFM2.5-230M
       LLM_TEMPERATURE: "0.0"
       LLM_MAX_TOKENS: "8048"
 
@@ -240,7 +240,7 @@ jobs:
 
       # LLM (Local Transformers - API key gerekmez)
       LLM_PROVIDER: transformers
-      LLM_MODEL: LiquidAI/LFM2-230M
+      LLM_MODEL: LiquidAI/LFM2.5-230M
       LLM_DEVICE: cpu
       LLM_DTYPE: float32
       LLM_TEMPERATURE: "0.0"
