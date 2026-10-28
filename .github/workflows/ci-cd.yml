@@ -42,7 +42,8 @@ jobs:
   test:
     name: Run Tests
     runs-on: ubuntu-latest
-
+    timeout-minutes: 120
+    
     services:
       postgres:
         image: postgres:16-alpine
