@@ -75,7 +75,7 @@ jobs:
       DATABASE_MAX_OVERFLOW: "5"
 
       LLM_PROVIDER: transformers
-      LLM_MODEL: LiquidAI/LFM2.5-VL-450M
+      LLM_MODEL: Qwen/Qwen2.5-0.5B-Instruct
       LLM_TEMPERATURE: "0.0"
       LLM_MAX_TOKENS: "8048"
 
@@ -244,7 +244,7 @@ jobs:
 
       # LLM (Local Transformers - API key gerekmez)
       LLM_PROVIDER: transformers
-      LLM_MODEL: LiquidAI/LFM2.5-VL-450M
+      LLM_MODEL: Qwen/Qwen2.5-0.5B-Instruct
       LLM_DEVICE: cpu
       LLM_DTYPE: float32
       LLM_TEMPERATURE: "0.0"
@@ -379,7 +379,7 @@ jobs:
 
       - name: Run container smoke test with environment variables
         env:
-          LLM_MODEL: ${{ vars.LLM_MODEL || 'LiquidAI/LFM2.5-VL-450M' }}
+          LLM_MODEL: ${{ vars.LLM_MODEL || 'Qwen/Qwen2.5-0.5B-Instruct' }}
         run: |
           IMAGE_NAME_LOWER=$(echo "${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
           IMAGE_TAG="${{ env.REGISTRY }}/${IMAGE_NAME_LOWER}:sha-${{ github.sha }}"
