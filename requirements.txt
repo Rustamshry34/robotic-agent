@@ -8,8 +8,7 @@ transformers>=4.46.0
 torch>=2.2.0
 accelerate>=0.34.0
 sentencepiece>=0.2.0
-flash-linear-attention 
-causal_conv1d
+
 
 # --- Robot Yetenekleri (MCP) ---
 mcp>=1.2.0
