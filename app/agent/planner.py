@@ -396,6 +396,12 @@ class RobotPlanner:
         """Create the local vLLM client."""
         # Lokal modelde API key zorunlu değildir, 'EMPTY' geçerlidir.
         
+        import os
+        # CI ortamında LLM'i devre dışı bırak
+        use_llm = os.getenv("USE_LLM_IN_TESTS", "true").lower()
+        if use_llm in {"false", "0", "no"}:
+            logger.info("USE_LLM_IN_TESTS=false, using heuristic planner")
+            return None
        
         return TransformersLLMClient(
             model_name=self.settings.llm_model,
