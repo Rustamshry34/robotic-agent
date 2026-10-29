@@ -13,7 +13,11 @@ The planner supports:
     - baseline_c: tools + verification
     - full_system: tools + memory + verification + recovery
 
-LLM integration uses a pure httpx-based OpenRouter client (no LangChain).
+Architecture:
+    The LLM produces a minimal PlanDraft (just tool_name + args),
+    which is then compiled into a full RobotPlan by Python.
+    This separation lets small models focus on what they do well:
+    choosing the right tool and arguments.
 """
 
 from __future__ import annotations
@@ -26,6 +30,7 @@ from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
+
 from app.agent.local_llm_client import TransformersLLMClient
 from app.core.config import Settings, get_settings
 from memory.chroma_client import ChromaMemoryClient, get_chroma_memory
@@ -37,6 +42,8 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "DEFAULT_TOOL_SPECS",
     "FailureStrategy",
+    "PlanDraft",
+    "PlannedAction",
     "PlanStep",
     "PlanStepType",
     "PlannerConfig",
@@ -114,6 +121,42 @@ class RobotPlan(BaseModel):
         return steps
 
 
+# ----------------------------------------------------------------------
+# NEW: Minimal LLM-friendly draft schema
+# ----------------------------------------------------------------------
+
+
+class PlannedAction(BaseModel):
+    """
+    Minimal action spec that a small LLM can reliably produce.
+
+    The LLM only decides: which tool + which arguments.
+    Everything else (step_id, description, verification, etc.)
+    is filled in deterministically by the Python compiler.
+    """
+
+    tool_name: str = Field(min_length=1)
+    input_payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class PlanDraft(BaseModel):
+    """
+    Small-model-friendly output contract.
+
+    Contains ONLY what the LLM must decide:
+    - An ordered list of actions (tool + args)
+
+    All structural fields (step_id, description, verification,
+    baseline, etc.) are owned by the Python compiler.
+    """
+
+    steps: list[PlannedAction] = Field(
+        min_length=1,
+        max_length=12,
+        description="Ordered list of actions to execute.",
+    )
+
+
 class PlannerConfig(BaseModel):
     """
     Planner behavior configuration.
@@ -137,17 +180,10 @@ class PlannerConfig(BaseModel):
         Build planner config from app settings.
 
         Baselines:
-            baseline_a:
-                LLM planning + robot tools only
-
-            baseline_b:
-                planning + experience memory
-
-            baseline_c:
-                planning + action verification
-
-            full_system:
-                planning + verification + state-aware memory + recovery
+            baseline_a: LLM planning + robot tools only
+            baseline_b: planning + experience memory
+            baseline_c: planning + action verification
+            full_system: planning + verification + state-aware memory + recovery
         """
         baseline_name = (baseline or settings.evaluation_baseline).strip().lower()
 
@@ -196,60 +232,45 @@ You are a careful robotic planning agent.
 Your job is to convert a natural-language robot task into a safe, executable plan using ONLY the provided MCP robot tools.
 
 CRITICAL RULES:
-1. You MUST output ONLY a valid JSON object. NO markdown, NO ```json tags, NO explanations.
-2. The 'steps' array MUST NOT be empty. It must contain at least one step.
-3. Every step MUST have 'description', 'tool_name', and 'step_type'.
+1. You MUST output ONLY a valid JSON object matching the schema below.
+2. NO markdown, NO ```json tags, NO explanations, NO extra text.
+3. The 'steps' array MUST NOT be empty. It must contain at least one action.
+4. Every action MUST have 'tool_name' (string) and 'input_payload' (object).
+5. Use only the available MCP tools listed below.
+6. Prefer small, observable, reversible steps.
+7. After grasp or release actions, the verification step will be added automatically by the compiler.
+
+AVAILABLE TOOLS:
+- robot_get_state: Get current robot state (no args needed, use {}).
+- robot_list_objects: List known objects (no args needed, use {}).
+- robot_detect_object: Detect a specific object. Args: {"object_id": "<id>"}.
+- robot_move_to: Move robot to target. Args: {"target_id": "<id>"}.
+- robot_grasp_object: Grasp an object. Args: {"object_id": "<id>"}.
+- robot_release_object: Release held object. Args: {"target_id": "<surface_id>"}.
+- robot_verify_object_location: Verify object location. Args: {"object_id": "<id>", "expected_location": "<loc>"}.
 
 EXACT OUTPUT FORMAT EXAMPLE:
 {
-  "task_name": "move_cup",
-  "goal": "Move the red cup to the kitchen counter",
-  "rationale": "The cup is on the table, robot needs to grasp and move it.",
   "steps": [
-    {
-      "step_id": 1,
-      "description": "Move robot to the table",
-      "tool_name": "robot_move_to",
-      "step_type": "action",
-      "input_payload": {"target_id": "table"},
-      "expected_state": "Robot is at table",
-      "verification_tool": null,
-      "verification_payload": {},
-      "on_failure": "replan",
-      "max_retries": 1
-    },
-    {
-      "step_id": 2,
-      "description": "Grasp the red cup",
-      "tool_name": "robot_grasp_object",
-      "step_type": "action",
-      "input_payload": {"object_id": "red_cup"},
-      "expected_state": "Robot is holding red_cup",
-      "verification_tool": "robot_verify_object_location",
-      "verification_payload": {"object_id": "red_cup", "expected_location": "gripper"},
-      "on_failure": "replan",
-      "max_retries": 2
-    }
-  ],
-  "final_verification": "Red cup is on the kitchen counter",
-  "requires_memory": true,
-  "requires_verification": true,
-  "baseline": "full_system"
+    {"tool_name": "robot_get_state", "input_payload": {}},
+    {"tool_name": "robot_detect_object", "input_payload": {"object_id": "red_cup"}},
+    {"tool_name": "robot_move_to", "input_payload": {"target_id": "red_cup"}},
+    {"tool_name": "robot_grasp_object", "input_payload": {"object_id": "red_cup"}},
+    {"tool_name": "robot_move_to", "input_payload": {"target_id": "kitchen_counter"}},
+    {"tool_name": "robot_release_object", "input_payload": {"target_id": "kitchen_counter"}}
+  ]
 }
 """.strip()
-
 
 
 HUMAN_PROMPT_TEMPLATE = """
 Planning mode: {planning_mode}
 
-Task name:
-{task_name}
+Task name: {task_name}
 
-Task instruction:
-{task_instruction}
+Task instruction: {task_instruction}
 
-Current robot state:
+Current robot state (compact):
 {current_state}
 
 Available MCP tools:
@@ -265,8 +286,9 @@ Constraints:
 - Maximum plan steps: {max_plan_steps}
 - Verification enabled: {enable_verification}
 - Use only available MCP tools.
-- Prefer verification after critical manipulation actions.
 - If an error occurred, produce a recovery plan that fixes the failure.
+
+Output ONLY the JSON object. No markdown. No explanations.
 """.strip()
 
 
@@ -348,6 +370,29 @@ def _to_json(value: Any) -> str:
     )
 
 
+def _compact_state(state: dict[str, Any]) -> dict[str, Any]:
+    """
+    Compact the robot state for LLM consumption.
+
+    Reduces ~2500 tokens of raw state to ~600 tokens by keeping
+    only the fields the LLM needs to plan effectively:
+    - robot location, gripper state, held object
+    - object locations (not full pose/surface info)
+    """
+    robot = state.get("robot", {}) or {}
+    objects = state.get("objects", {}) or {}
+
+    return {
+        "robot_location": robot.get("current_location"),
+        "holding_object": robot.get("holding_object"),
+        "gripper_open": robot.get("gripper_open"),
+        "object_locations": {
+            name: obj.get("location")
+            for name, obj in objects.items()
+        },
+    }
+
+
 def _format_memories(memories: list[dict[str, Any]]) -> str:
     if not memories:
         return "No relevant memories."
@@ -396,9 +441,14 @@ class RobotPlanner:
     """
     LLM-backed structured planner for robot tasks.
 
-    Uses a pure httpx-based OpenRouter client (no LangChain).
-    If no LLM API key is configured and environment is not production,
-    it falls back to a deterministic heuristic planner for local testing.
+    Uses a small local LLM via TransformersLLMClient.
+    The LLM produces a minimal PlanDraft (just tool_name + args),
+    which is then compiled into a full RobotPlan by Python.
+
+    Args:
+        strict_llm: If True, LLM failures are raised instead of
+            falling back to heuristic planner. Used in evaluation
+            jobs to prevent silent fallback from corrupting results.
     """
 
     def __init__(
@@ -407,9 +457,11 @@ class RobotPlanner:
         memory_client: ChromaMemoryClient | None = None,
         config: PlannerConfig | None = None,
         llm_client: TransformersLLMClient | None = None,
+        strict_llm: bool = False,
     ) -> None:
         self.settings = settings or get_settings()
         self.config = config or PlannerConfig.from_settings(self.settings)
+        self.strict_llm = strict_llm
 
         self.memory_client = memory_client
 
@@ -425,17 +477,19 @@ class RobotPlanner:
 
         self.llm_client = llm_client or self._create_llm_client()
 
-    def _create_llm_client(self) ->  TransformersLLMClient | None:
-        """Create the local vLLM client."""
-        # Lokal modelde API key zorunlu değildir, 'EMPTY' geçerlidir.
-        
+    def _create_llm_client(self) -> TransformersLLMClient | None:
+        """
+        Create the local LLM client.
+
+        Returns None if USE_LLM_IN_TESTS=false (CI ortamında heuristic planner kullanılır).
+        """
         import os
-        # CI ortamında LLM'i devre dışı bırak
+
         use_llm = os.getenv("USE_LLM_IN_TESTS", "true").lower()
         if use_llm in {"false", "0", "no"}:
             logger.info("USE_LLM_IN_TESTS=false, using heuristic planner")
             return None
-       
+
         return TransformersLLMClient(
             model_name=self.settings.llm_model,
             device=self.settings.llm_device,
@@ -487,14 +541,12 @@ class RobotPlanner:
                     memories=memories,
                 )
             except Exception:
-                logger.exception(
-                    "LLM planning failed. "
-                    "Falling back to heuristic planner."
-                )
+                logger.exception("LLM planning failed.")
 
-                if self.settings.is_production:
+                if self.strict_llm:
                     raise
 
+                logger.warning("Falling back to heuristic planner.")
                 plan = self._heuristic_plan(
                     task_instruction=task_instruction,
                     task_name=task_name,
@@ -559,14 +611,12 @@ class RobotPlanner:
                     error_message=error_message,
                 )
             except Exception:
-                logger.exception(
-                    "LLM recovery planning failed. "
-                    "Falling back to heuristic recovery planner."
-                )
+                logger.exception("LLM recovery planning failed.")
 
-                if self.settings.is_production:
+                if self.strict_llm:
                     raise
 
+                logger.warning("Falling back to heuristic recovery planner.")
                 plan = self._heuristic_recovery_plan(
                     failed_plan=failed_plan,
                     failed_step=failed_step,
@@ -585,7 +635,7 @@ class RobotPlanner:
         return plan
 
     # ------------------------------------------------------------------
-    # LLM planning (pure OpenRouter)
+    # LLM planning (via PlanDraft)
     # ------------------------------------------------------------------
 
     async def _llm_plan(
@@ -598,7 +648,7 @@ class RobotPlanner:
         memories: list[dict[str, Any]],
     ) -> RobotPlan:
         """
-        Generate a plan using the OpenRouter LLM.
+        Generate a plan using the local LLM via PlanDraft.
         """
         if self.llm_client is None:
             raise RuntimeError("LLM client is not available.")
@@ -607,7 +657,7 @@ class RobotPlanner:
             planning_mode=planning_mode,
             task_name=task_name,
             task_instruction=task_instruction,
-            current_state=_to_json(current_state),
+            current_state=_to_json(_compact_state(current_state)),
             available_tools=_to_json(available_tools),
             relevant_memories=_format_memories(memories),
             error_context="None",
@@ -615,22 +665,21 @@ class RobotPlanner:
             enable_verification=self.config.enable_verification,
         )
 
-        result = await self.llm_client.generate_structured(
+        # LLM produces a minimal PlanDraft
+        draft = await self.llm_client.generate_structured(
             prompt=prompt,
-            schema=RobotPlan,
+            schema=PlanDraft,
             system_instruction=SYSTEM_PROMPT,
         )
 
-        if not isinstance(result, RobotPlan):
-            raise ValueError("LLM did not return a valid RobotPlan.")
+        # Python compiles PlanDraft into full RobotPlan
+        plan = self._compile_draft(
+            draft=draft,
+            task_instruction=task_instruction,
+            task_name=task_name,
+        )
 
-        result.task_name = result.task_name or task_name
-        result.goal = result.goal or task_instruction
-        result.baseline = self.config.baseline
-        result.requires_memory = self.config.enable_memory
-        result.requires_verification = self.config.enable_verification
-
-        return result
+        return plan
 
     async def _llm_recovery_plan(
         self,
@@ -645,7 +694,7 @@ class RobotPlanner:
         error_message: str | None,
     ) -> RobotPlan:
         """
-        Generate a recovery plan using the OpenRouter LLM.
+        Generate a recovery plan using the local LLM via PlanDraft.
         """
         if self.llm_client is None:
             raise RuntimeError("LLM client is not available.")
@@ -657,14 +706,17 @@ class RobotPlanner:
             "failed_step_input": failed_step.input_payload,
             "error_code": error_code,
             "error_message": error_message,
-            "previous_plan": failed_plan.model_dump(),
+            "previous_plan": [
+                {"tool_name": s.tool_name, "input_payload": s.input_payload}
+                for s in failed_plan.steps
+            ],
         }
 
         prompt = HUMAN_PROMPT_TEMPLATE.format(
             planning_mode="recovery_plan",
             task_name=task_name,
             task_instruction=task_instruction,
-            current_state=_to_json(current_state),
+            current_state=_to_json(_compact_state(current_state)),
             available_tools=_to_json(available_tools),
             relevant_memories=_format_memories(memories),
             error_context=_to_json(error_context),
@@ -672,22 +724,137 @@ class RobotPlanner:
             enable_verification=self.config.enable_verification,
         )
 
-        result = await self.llm_client.generate_structured(
+        draft = await self.llm_client.generate_structured(
             prompt=prompt,
-            schema=RobotPlan,
+            schema=PlanDraft,
             system_instruction=SYSTEM_PROMPT,
         )
 
-        if not isinstance(result, RobotPlan):
-            raise ValueError("LLM did not return a valid recovery RobotPlan.")
+        plan = self._compile_draft(
+            draft=draft,
+            task_instruction=task_instruction,
+            task_name=task_name,
+            is_recovery=True,
+        )
+        plan.rationale = (
+            f"Recovery plan generated after error_code={error_code}. "
+            f"error_message={error_message or 'unknown'}"
+        )
 
-        result.task_name = result.task_name or task_name
-        result.goal = result.goal or task_instruction
-        result.baseline = self.config.baseline
-        result.requires_memory = self.config.enable_memory
-        result.requires_verification = self.config.enable_verification
+        return plan
 
-        return result
+    # ------------------------------------------------------------------
+    # Draft compiler: PlanDraft -> RobotPlan
+    # ------------------------------------------------------------------
+
+    def _compile_draft(
+        self,
+        draft: PlanDraft,
+        task_instruction: str,
+        task_name: str,
+        is_recovery: bool = False,
+    ) -> RobotPlan:
+        """
+        Turn a minimal LLM draft into a validated RobotPlan.
+
+        Deterministic fields are owned by code, NOT by the LLM:
+        - step_id (sequential numbering)
+        - description (auto-generated from tool + args)
+        - step_type (inferred from tool name)
+        - verification_tool / verification_payload (added automatically
+          after grasp/release when verification is enabled)
+        - baseline, requires_memory, requires_verification (from config)
+
+        This separation lets a small model focus on what it does well:
+        choosing the right tool and arguments.
+        """
+        steps: list[PlanStep] = []
+
+        for action in draft.steps:
+            # Infer step type from tool name
+            if action.tool_name in {
+                "robot_get_state",
+                "robot_list_objects",
+                "robot_detect_object",
+            }:
+                step_type = PlanStepType.OBSERVATION
+            elif is_recovery:
+                step_type = PlanStepType.RECOVERY
+            else:
+                step_type = PlanStepType.ACTION
+
+            # Auto-generate description
+            args_str = ", ".join(
+                f"{k}={v!r}" for k, v in action.input_payload.items()
+            )
+            description = (
+                f"{action.tool_name}({args_str})" if args_str else action.tool_name
+            )
+
+            # Determine if this action needs auto-verification
+            needs_verify = (
+                self.config.enable_verification
+                and action.tool_name in {
+                    "robot_grasp_object",
+                    "robot_release_object",
+                }
+            )
+
+            verification_tool = None
+            verification_payload: dict[str, Any] = {}
+
+            if needs_verify:
+                verification_tool = "robot_verify_object_location"
+                if action.tool_name == "robot_grasp_object":
+                    object_id = action.input_payload.get("object_id", "object")
+                    verification_payload = {
+                        "object_id": object_id,
+                        "expected_location": "gripper",
+                    }
+                elif action.tool_name == "robot_release_object":
+                    target_id = action.input_payload.get("target_id", "surface")
+                    # We don't know the exact object being released at plan time,
+                    # but we can use a placeholder. The executor will fill it in.
+                    verification_payload = {
+                        "object_id": "__held_object__",
+                        "expected_location": target_id,
+                    }
+
+            steps.append(
+                PlanStep(
+                    step_id=len(steps) + 1,
+                    description=description,
+                    tool_name=action.tool_name,
+                    step_type=step_type,
+                    input_payload=action.input_payload,
+                    expected_state=f"{action.tool_name} executed.",
+                    verification_tool=verification_tool,
+                    verification_payload=verification_payload,
+                )
+            )
+
+            # Auto-append verification step if needed
+            if needs_verify:
+                steps.append(
+                    PlanStep(
+                        step_id=len(steps) + 1,
+                        description=f"Verify result of {action.tool_name}.",
+                        tool_name="robot_verify_object_location",
+                        step_type=PlanStepType.VERIFICATION,
+                        input_payload=verification_payload,
+                        expected_state="Verification passed.",
+                    )
+                )
+
+        return RobotPlan(
+            task_name=task_name,
+            goal=task_instruction,
+            rationale="LLM-selected action sequence, compiled by planner.",
+            steps=steps,
+            baseline=self.config.baseline,
+            requires_memory=self.config.enable_memory,
+            requires_verification=self.config.enable_verification,
+        )
 
     # ------------------------------------------------------------------
     # Memory retrieval
@@ -704,7 +871,7 @@ class RobotPlanner:
         query_text = "\n".join(
             [
                 f"Task: {task_instruction}",
-                f"State: {_to_json(current_state)}",
+                f"State: {_to_json(_compact_state(current_state))}",
             ]
         )
 
@@ -1062,6 +1229,7 @@ def create_planner(
     memory_client: ChromaMemoryClient | None = None,
     baseline: str | None = None,
     llm_client: TransformersLLMClient | None = None,
+    strict_llm: bool = False,
 ) -> RobotPlanner:
     """
     Create a RobotPlanner.
@@ -1081,7 +1249,12 @@ def create_planner(
             - full_system
 
         llm_client:
-            Optional OpenRouter client. Useful for tests.
+            Optional LLM client. Useful for tests.
+
+        strict_llm:
+            If True, LLM failures raise instead of falling back.
+            Used in evaluation jobs to prevent silent fallback
+            from corrupting results.
     """
     settings = settings or get_settings()
 
@@ -1095,5 +1268,5 @@ def create_planner(
         memory_client=memory_client,
         config=config,
         llm_client=llm_client,
+        strict_llm=strict_llm,
     )
-    
