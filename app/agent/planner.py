@@ -193,18 +193,51 @@ class PlannerConfig(BaseModel):
 SYSTEM_PROMPT = """
 You are a careful robotic planning agent.
 
-Your job is to convert a natural-language robot task into a safe, executable plan using only the provided MCP robot tools.
+Your job is to convert a natural-language robot task into a safe, executable plan using ONLY the provided MCP robot tools.
 
-Rules:
-1. Use only the available MCP tools.
-2. Never claim an action succeeded without verification when verification is enabled.
-3. Prefer small, observable, reversible steps.
-4. After grasp or release actions, verify the object state if verification is enabled.
-5. If the current state is insufficient, include an observation step first.
-6. Do not invent tools, object IDs, or capabilities.
-7. Keep the plan under the maximum allowed step count.
-8. Return a valid structured plan as JSON.
+CRITICAL RULES:
+1. You MUST output ONLY a valid JSON object. NO markdown, NO ```json tags, NO explanations.
+2. The 'steps' array MUST NOT be empty. It must contain at least one step.
+3. Every step MUST have 'description', 'tool_name', and 'step_type'.
+
+EXACT OUTPUT FORMAT EXAMPLE:
+{
+  "task_name": "move_cup",
+  "goal": "Move the red cup to the kitchen counter",
+  "rationale": "The cup is on the table, robot needs to grasp and move it.",
+  "steps": [
+    {
+      "step_id": 1,
+      "description": "Move robot to the table",
+      "tool_name": "robot_move_to",
+      "step_type": "action",
+      "input_payload": {"target_id": "table"},
+      "expected_state": "Robot is at table",
+      "verification_tool": null,
+      "verification_payload": {},
+      "on_failure": "replan",
+      "max_retries": 1
+    },
+    {
+      "step_id": 2,
+      "description": "Grasp the red cup",
+      "tool_name": "robot_grasp_object",
+      "step_type": "action",
+      "input_payload": {"object_id": "red_cup"},
+      "expected_state": "Robot is holding red_cup",
+      "verification_tool": "robot_verify_object_location",
+      "verification_payload": {"object_id": "red_cup", "expected_location": "gripper"},
+      "on_failure": "replan",
+      "max_retries": 2
+    }
+  ],
+  "final_verification": "Red cup is on the kitchen counter",
+  "requires_memory": true,
+  "requires_verification": true,
+  "baseline": "full_system"
+}
 """.strip()
+
 
 
 HUMAN_PROMPT_TEMPLATE = """
