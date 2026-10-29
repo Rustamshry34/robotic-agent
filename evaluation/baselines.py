@@ -12,12 +12,20 @@ comparing different system configurations:
 Each baseline can be run multiple times with different seeds to measure
 variance and statistical significance.
 
+Key design decisions (MLOps-grade):
+- strict_llm mode: LLM failures raise instead of silent fallback
+  (prevents corrupted benchmark results)
+- Deterministic seed generation via hashlib (platform-independent)
+- Provenance tracking: each result records planning_backend + llm_model
+  (prevents silent heuristic fallback from masquerading as LLM results)
+
 Usage:
     # Python API
     experiment = BaselineExperiment(
         instruction="Take the red cup to the kitchen counter",
         baselines=["baseline_a", "baseline_b", "baseline_c", "full_system"],
         iterations=10,
+        strict_llm=True,  # Fail loudly if LLM breaks
     )
     result = await experiment.run()
 
@@ -26,6 +34,7 @@ Usage:
         --instruction "Take the red cup" \\
         --baselines baseline_a baseline_b baseline_c full_system \\
         --iterations 10 \\
+        --strict-llm \\
         --output results.json
 """
 
@@ -33,6 +42,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import json
 import logging
 import random
@@ -103,6 +113,7 @@ class BaselineResult(BaseModel):
     - retry counts
     - verification outcomes
     - memory retrieval counts
+    - planning_backend (provenance: "llm" or "heuristic")
     """
 
     baseline: str
@@ -182,6 +193,9 @@ class BaselineSummary(BaseModel):
 
     error_distribution: dict[str, int] = Field(default_factory=dict)
 
+    # Provenance tracking
+    planning_backend: str = "unknown"
+
     @classmethod
     def from_results(
         cls,
@@ -213,6 +227,9 @@ class BaselineSummary(BaseModel):
                     error_distribution.get(r.error_code, 0) + 1
                 )
 
+        # Infer planning_backend from first result's metadata
+        planning_backend = results[0].metadata.get("planning_backend", "unknown")
+
         return cls(
             baseline=baseline,
             total_runs=total,
@@ -231,6 +248,7 @@ class BaselineSummary(BaseModel):
             total_recovery_attempts=sum(recoveries),
             total_retries=sum(retries),
             error_distribution=error_distribution,
+            planning_backend=planning_backend,
         )
 
 
@@ -342,7 +360,7 @@ class BaselineRunner:
     - Creating executor with correct config
     - Running task execution
     - Collecting metrics
-    - Returning structured result
+    - Returning structured result with provenance tracking
     """
 
     def __init__(
@@ -350,11 +368,14 @@ class BaselineRunner:
         config: BaselineConfig,
         settings: Settings | None = None,
         memory_client: ChromaMemoryClient | None = None,
-        executor: RobotExecutor | None = None,  # ← YENİ
+        executor: RobotExecutor | None = None,
+        strict_llm: bool = False,
     ) -> None:
         self.config = config
         self.settings = settings or get_settings()
-        self._injected_executor = executor  # ← YENİ
+        self._injected_executor = executor
+        self.strict_llm = strict_llm
+        self._planner = None  # Track planner for provenance
 
         if memory_client is None and config.enable_memory:
             try:
@@ -371,8 +392,9 @@ class BaselineRunner:
     def _create_planner(self) -> Any:
         """
         Create planner configured for this baseline.
+        Stores reference for provenance tracking.
         """
-        return create_planner(
+        self._planner = create_planner(
             settings=self.settings,
             memory_client=(
                 self.memory_client
@@ -380,16 +402,17 @@ class BaselineRunner:
                 else None
             ),
             baseline=self.config.baseline,
+            strict_llm=self.strict_llm,
         )
+        return self._planner
 
     def _create_executor(self) -> RobotExecutor:
         """
         Create executor configured for this baseline.
         """
-
         if self._injected_executor is not None:
-            return self._injected_executor  # ← YENİ: Injected executor'ı kullan
-            
+            return self._injected_executor
+
         planner = self._create_planner()
 
         return RobotExecutor(
@@ -401,6 +424,26 @@ class BaselineRunner:
                 else None
             ),
         )
+
+    def _get_planning_backend(self) -> str:
+        """
+        Infer planning backend from planner state.
+
+        Returns:
+            "llm" if LLM client is available, "heuristic" otherwise.
+        """
+        if self._planner is not None:
+            return "llm" if self._planner.llm_client is not None else "heuristic"
+
+        if self._injected_executor is not None:
+            if hasattr(self._injected_executor, "planner") and self._injected_executor.planner:
+                return (
+                    "llm"
+                    if self._injected_executor.planner.llm_client is not None
+                    else "heuristic"
+                )
+
+        return "unknown"
 
     async def run(
         self,
@@ -421,6 +464,9 @@ class BaselineRunner:
         tool_invoker = SimulatedMCPToolInvoker(backend=backend)
 
         started_at = datetime.now(UTC)
+
+        # Determine planning backend for provenance tracking
+        planning_backend = self._get_planning_backend()
 
         try:
             execution_result: ExecutionResult = await executor.execute_task(
@@ -459,6 +505,17 @@ class BaselineRunner:
                 duration_ms=int(
                     (finished_at - started_at).total_seconds() * 1000
                 ),
+                metadata={
+                    **(metadata or {}),
+                    "baseline": self.config.baseline,
+                    "iteration": iteration,
+                    "seed": seed,
+                    "planning_backend": planning_backend,
+                    "llm_model": self.settings.llm_model,
+                    "enable_memory": self.config.enable_memory,
+                    "enable_verification": self.config.enable_verification,
+                    "enable_recovery": self.config.enable_recovery,
+                },
             )
 
         finished_at = datetime.now(UTC)
@@ -499,6 +556,8 @@ class BaselineRunner:
                 "baseline": self.config.baseline,
                 "iteration": iteration,
                 "seed": seed,
+                "planning_backend": planning_backend,
+                "llm_model": self.settings.llm_model,
                 "enable_memory": self.config.enable_memory,
                 "enable_verification": self.config.enable_verification,
                 "enable_recovery": self.config.enable_recovery,
@@ -517,6 +576,11 @@ class BaselineExperiment:
 
     Executes the same instruction across multiple baselines
     and multiple iterations, collecting metrics for comparison.
+
+    Key features:
+    - Deterministic seed generation (platform-independent)
+    - strict_llm mode for evaluation integrity
+    - Provenance tracking (planning_backend, llm_model)
     """
 
     def __init__(
@@ -529,7 +593,8 @@ class BaselineExperiment:
         seed: int | None = None,
         task_name: str | None = None,
         metadata: dict[str, Any] | None = None,
-        executor: RobotExecutor | None = None,  # ← YENİ
+        executor: RobotExecutor | None = None,
+        strict_llm: bool = False,
     ) -> None:
         self.instruction = instruction
         self.baselines = baselines if baselines is not None else list(AVAILABLE_BASELINES)
@@ -539,7 +604,8 @@ class BaselineExperiment:
         self.seed = seed if seed is not None else random.randint(0, 2**31 - 1)
         self.task_name = task_name
         self.metadata = metadata or {}
-        self._injected_executor = executor  # ← YENİ
+        self._injected_executor = executor
+        self.strict_llm = strict_llm
 
         self._validate_baselines()
 
@@ -547,19 +613,42 @@ class BaselineExperiment:
         """
         Validate that all baselines are known.
         """
-
         if not self.baselines:
             raise ValueError(
                 "At least one baseline must be provided. "
                 f"Available: {AVAILABLE_BASELINES}"
-            )  # ← YENİ: Boş baselines kontrolü
-            
+            )
+
         for baseline in self.baselines:
             if baseline not in AVAILABLE_BASELINES:
                 raise ValueError(
                     f"Unknown baseline: '{baseline}'. "
                     f"Available: {AVAILABLE_BASELINES}"
                 )
+
+    @staticmethod
+    def _compute_iteration_seed(
+        base_seed: int,
+        baseline: str,
+        iteration: int,
+    ) -> int:
+        """
+        Compute a deterministic seed for a baseline+iteration combination.
+
+        Uses hashlib.sha256 for platform-independent reproducibility.
+        Unlike Python's built-in hash(), this is stable across:
+        - Different Python processes
+        - Different machines
+        - Different CI runs with the same --seed
+
+        Returns:
+            A positive integer in [0, 2^31).
+        """
+        h = hashlib.sha256(
+            f"{base_seed}:{baseline}:{iteration}".encode("utf-8")
+        ).digest()
+        # Use first 4 bytes as unsigned int, mod 2^31 to keep positive
+        return int.from_bytes(h[:4], "big") % (2**31)
 
     async def run(
         self,
@@ -573,12 +662,13 @@ class BaselineExperiment:
 
         logger.info(
             "Starting baseline experiment: id=%s instruction=%r "
-            "baselines=%s iterations=%d seed=%d",
+            "baselines=%s iterations=%d seed=%d strict_llm=%s",
             experiment_id,
             self.instruction,
             self.baselines,
             self.iterations,
             self.seed,
+            self.strict_llm,
         )
 
         experiment_result = ExperimentResult(
@@ -588,7 +678,11 @@ class BaselineExperiment:
             iterations=self.iterations,
             seed=self.seed,
             started_at=started_at,
-            metadata=self.metadata,
+            metadata={
+                **self.metadata,
+                "strict_llm": self.strict_llm,
+                "llm_model": self.settings.llm_model,
+            },
         )
 
         for baseline in self.baselines:
@@ -597,13 +691,15 @@ class BaselineExperiment:
                 config=config,
                 settings=self.settings,
                 memory_client=self.memory_client,
-                executor=self._injected_executor,  # ← YENİ: executor'ı runner'a geçir
+                executor=self._injected_executor,
+                strict_llm=self.strict_llm,
             )
 
             for iteration in range(1, self.iterations + 1):
-                iteration_seed = self.seed + hash(
-                    (baseline, iteration)
-                ) % (2**31)
+                # Deterministic seed generation (platform-independent)
+                iteration_seed = self._compute_iteration_seed(
+                    self.seed, baseline, iteration
+                )
 
                 logger.info(
                     "Running baseline=%s iteration=%d/%d seed=%d",
@@ -656,6 +752,7 @@ class BaselineExperiment:
         print(f"Iterations: {result.iterations}")
         print(f"Seed: {result.seed}")
         print(f"Total Duration: {result.total_duration_ms} ms")
+        print(f"Strict LLM: {self.strict_llm}")
         print("=" * 80)
 
         for baseline in result.baselines:
@@ -664,6 +761,7 @@ class BaselineExperiment:
                 continue
 
             print(f"\n[{baseline.upper()}]")
+            print(f"  Planning Backend:      {summary.planning_backend}")
             print(f"  Total Runs:              {summary.total_runs}")
             print(f"  Success Rate:            {summary.success_rate:.1%}")
             print(f"  Avg Duration:            {summary.average_duration_ms:.1f} ms")
@@ -702,6 +800,7 @@ async def run_baseline_experiment(
     seed: int | None = None,
     output_path: str | None = None,
     print_summary: bool = True,
+    strict_llm: bool = False,
 ) -> ExperimentResult:
     """
     Run a baseline experiment and optionally save results to JSON.
@@ -714,6 +813,7 @@ async def run_baseline_experiment(
         seed: Optional random seed for reproducibility.
         output_path: Optional path to save JSON results.
         print_summary: Whether to print human-readable summary.
+        strict_llm: If True, LLM failures raise instead of silent fallback.
 
     Returns:
         ExperimentResult with all metrics.
@@ -724,6 +824,7 @@ async def run_baseline_experiment(
         iterations=iterations,
         settings=settings,
         seed=seed,
+        strict_llm=strict_llm,
     )
 
     result = await experiment.run()
@@ -767,11 +868,12 @@ Examples:
         --instruction "Take the red cup to the kitchen counter" \\
         --iterations 10
 
-    # Run specific baselines
+    # Run specific baselines with strict LLM mode
     python -m evaluation.baselines \\
         --instruction "Take the red cup" \\
         --baselines baseline_a baseline_c full_system \\
-        --iterations 5
+        --iterations 5 \\
+        --strict-llm
 
     # Save results to JSON
     python -m evaluation.baselines \\
@@ -829,6 +931,16 @@ Examples:
         help="Logging level (default: INFO).",
     )
 
+    parser.add_argument(
+        "--strict-llm",
+        action="store_true",
+        help=(
+            "Fail loudly if LLM planning fails. "
+            "Prevents silent fallback to heuristic planner, "
+            "which would corrupt benchmark results."
+        ),
+    )
+
     return parser.parse_args()
 
 
@@ -852,6 +964,7 @@ def main() -> int:
                 seed=args.seed,
                 output_path=args.output,
                 print_summary=not args.quiet,
+                strict_llm=args.strict_llm,
             )
         )
         return 0
