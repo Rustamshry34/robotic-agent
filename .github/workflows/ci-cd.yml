@@ -66,6 +66,8 @@ jobs:
       LOG_LEVEL: INFO
       AGENT_VERSION: "0.1.0-test"
 
+      USE_LLM_IN_TESTS: "false"  # ← YENİ SATIR
+
       DATABASE_URL: postgresql+asyncpg://test_user:test_password@localhost:5432/test_robot_agent
       DATABASE_AUTO_CREATE_TABLES: "true"
       DATABASE_ECHO: "false"
@@ -237,6 +239,8 @@ jobs:
     env:
       ENVIRONMENT: test
       LOG_LEVEL: INFO
+
+      USE_LLM_IN_TESTS: "true"  # ← YENİ SATIR
 
       # LLM (Local Transformers - API key gerekmez)
       LLM_PROVIDER: transformers
