@@ -77,7 +77,7 @@ jobs:
       LLM_PROVIDER: transformers
       LLM_MODEL: Qwen/Qwen3.5-0.8B
       LLM_TEMPERATURE: "0.0"
-      LLM_MAX_TOKENS: "9048"
+      LLM_MAX_TOKENS: "1048"
 
       MCP_ROBOT_BACKEND: simulated
       MCP_TRANSPORT: stdio
@@ -248,7 +248,7 @@ jobs:
       LLM_DEVICE: cpu
       LLM_DTYPE: float32
       LLM_TEMPERATURE: "0.0"
-      LLM_MAX_TOKENS: "9048"
+      LLM_MAX_TOKENS: "1048"
 
       MCP_ROBOT_BACKEND: simulated
       MCP_TRANSPORT: stdio
