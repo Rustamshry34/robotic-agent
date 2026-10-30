@@ -75,7 +75,7 @@ jobs:
       DATABASE_MAX_OVERFLOW: "5"
 
       LLM_PROVIDER: transformers
-      LLM_MODEL: Qwen/Qwen3.5-0.8B
+      LLM_MODEL: khazarai/Qwen3.8-max-Reasoning-Distilled
       LLM_TEMPERATURE: "0.0"
       LLM_MAX_TOKENS: "1024"
 
@@ -244,7 +244,7 @@ jobs:
 
       # LLM (Local Transformers - API key gerekmez)
       LLM_PROVIDER: transformers
-      LLM_MODEL: Qwen/Qwen3.5-0.8B
+      LLM_MODEL: khazarai/Qwen3.8-max-Reasoning-Distilled
       LLM_DEVICE: cpu
       LLM_DTYPE: float32
       LLM_TEMPERATURE: "0.0"
@@ -380,7 +380,7 @@ jobs:
 
       - name: Run container smoke test with environment variables
         env:
-          LLM_MODEL: ${{ vars.LLM_MODEL || 'Qwen/Qwen3.5-0.8B' }}
+          LLM_MODEL: ${{ vars.LLM_MODEL || 'khazarai/Qwen3.8-max-Reasoning-Distilled' }}
         run: |
           IMAGE_NAME_LOWER=$(echo "${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
 
