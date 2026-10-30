@@ -26,11 +26,11 @@ logger = logging.getLogger(__name__)
 
 # Default token budget. Prompt + output must fit within this.
 # 4096 is a safe ceiling for small models on CPU.
-DEFAULT_CONTEXT_BUDGET = 4096
+DEFAULT_CONTEXT_BUDGET = 8096
 
 # Hard cap on generation length. Small models rarely need more than
 # ~768 tokens for a structured plan; larger values invite repetition.
-DEFAULT_MAX_OUTPUT_TOKENS = 768
+DEFAULT_MAX_OUTPUT_TOKENS = 1024
 
 # Default per-call timeout. CI runners are slow; 120s is generous.
 DEFAULT_TIMEOUT_SECONDS = 120
