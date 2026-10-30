@@ -64,6 +64,18 @@ class TransformersLLMClient:
         self.device = device
         self.dtype = dtype
         self.temperature = temperature
+
+        # Hard-cap: Robot planı için 768 token fazlasıyla yeterli.
+        # Daha yüksek değerler küçük modellerde tekrar üretimine neden olur.
+        if max_tokens > DEFAULT_MAX_OUTPUT_TOKENS:
+            logger.warning(
+                "max_tokens=%d exceeds safe limit for structured output. "
+                "Capping at %d.",
+                max_tokens,
+                DEFAULT_MAX_OUTPUT_TOKENS,
+            )
+            max_tokens = DEFAULT_MAX_OUTPUT_TOKENS
+            
         self.max_tokens = max_tokens
         self.timeout = timeout
         self.context_budget = context_budget
